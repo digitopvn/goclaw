@@ -3,6 +3,7 @@
 package integration
 
 import (
+	"strings"
 	"context"
 	"database/sql"
 	"strings"
