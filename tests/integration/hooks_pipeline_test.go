@@ -17,9 +17,6 @@ import (
 	"github.com/nextlevelbuilder/goclaw/internal/store/pg"
 )
 
-// allowLoopbackForTest has been promoted to v3_test_helper.go so multiple
-// integration test files can share it. Kept here as a stub comment only.
-
 // newDispatcher wires a StdDispatcher with the supplied handler map over a
 // live PG hook store. Audit writer runs without encryption (dev mode).
 func newDispatcher(t *testing.T, hs hooks.HookStore, hdls map[hooks.HandlerType]hooks.Handler) hooks.Dispatcher {

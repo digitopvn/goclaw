@@ -73,6 +73,8 @@ func init() {
 		MsgAlreadySummoning:      "agent is already being summoned",
 		MsgSummoningUnavailable:  "summoning not available",
 		MsgNoDescription:         "agent has no description to resummon from",
+		MsgSummonCancelled:       "summon cancelled by user",
+		MsgCannotCancel:          "agent is not being summoned",
 		MsgInvalidPath:           "invalid path",
 
 		// Tenant backup / restore
@@ -92,12 +94,12 @@ func init() {
 		MsgNotImplemented: "%s not yet implemented",
 
 		// Agent links
-		MsgLinksNotConfigured:   "agent links not configured",
-		MsgInvalidDirection:     "direction must be outbound, inbound, or bidirectional",
-		MsgSourceTargetSame:     "source and target must be different agents",
-		MsgCannotDelegateOpen:   "cannot delegate to open agents — only predefined agents can be delegation targets",
-		MsgNoUpdatesProvided:    "no updates provided",
-		MsgInvalidLinkStatus:    "status must be active or disabled",
+		MsgLinksNotConfigured: "agent links not configured",
+		MsgInvalidDirection:   "direction must be outbound, inbound, or bidirectional",
+		MsgSourceTargetSame:   "source and target must be different agents",
+		MsgCannotDelegateOpen: "cannot delegate to open agents — only predefined agents can be delegation targets",
+		MsgNoUpdatesProvided:  "no updates provided",
+		MsgInvalidLinkStatus:  "status must be active or disabled",
 
 		// Teams
 		MsgTeamsNotConfigured:   "teams not configured",
@@ -111,6 +113,7 @@ func init() {
 		// Skills
 		MsgSkillsUpdateNotSupported: "skills.update not supported for file-based skills",
 		MsgCannotResolveSkillID:     "cannot resolve skill ID for file-based skill",
+		MsgInvalidVisibility:        "invalid visibility %q: must be one of private, public",
 
 		// Logs
 		MsgInvalidLogAction: "action must be 'start' or 'stop'",
@@ -197,8 +200,15 @@ func init() {
 		MsgTenantScopeRequired: "tenant scope is required for this operation",
 
 		// TTS / Voices
-		MsgTtsUnknownModel:  "unknown tts model: %s",
-		MsgVoicesListFailed: "failed to list voices: %s",
+		MsgTtsUnknownModel:       "unknown tts model: %s",
+		MsgVoicesListFailed:      "failed to list voices: %s",
+		MsgTtsGeminiInvalidVoice: "invalid Gemini voice: %s",
+		MsgTtsGeminiSpeakerLimit: "Gemini TTS supports at most 2 speakers",
+		MsgTtsGeminiInvalidModel:  "invalid Gemini TTS model: %s",
+		MsgTtsGeminiTextOnly:      "Gemini refused to generate audio. Try simpler text without translation or commentary.",
+		MsgTtsParamOutOfRange:     "TTS param %q value %v is out of range [%v, %v]",
+		MsgTtsParamUnknownKey:     "TTS param %q is not supported by this provider",
+		MsgTtsMiniMaxVoicesFailed: "failed to fetch MiniMax voices: %s",
 
 		// STT
 		MsgSTTAllProvidersFailed:     "All STT providers failed",
@@ -216,6 +226,30 @@ func init() {
 		MsgWorkstationAccessDenied: "agent %s not authorized for workstation %s",
 		MsgBackendNotReady:         "workstation backend not ready: %s",
 
+		// Webhooks
+		MsgWebhookAuthFailed:              "webhook authentication failed",
+		MsgWebhookHMACInvalid:             "HMAC signature is invalid",
+		MsgWebhookHMACTimestampSkew:       "request timestamp outside acceptable window",
+		MsgWebhookBearerRequiredHMAC:      "this webhook requires HMAC authentication",
+		MsgWebhookRevoked:                 "webhook has been revoked",
+		MsgWebhookKindMismatch:            "request kind does not match webhook configuration",
+		MsgWebhookRateLimited:             "webhook rate limit exceeded",
+		MsgWebhookBodyTooLarge:            "request body exceeds size limit",
+		MsgWebhookIdempotencyConflict:     "idempotency key conflict: request body mismatch",
+		MsgWebhookTenantMismatch:          "webhook tenant mismatch",
+		MsgWebhookAgentNotFound:           "webhook agent not found",
+		MsgWebhookChannelNotFound:         "webhook channel not found",
+		MsgWebhookMediaSSRFBlocked:        "media URL blocked by SSRF policy",
+		MsgWebhookMediaTooLarge:           "media file exceeds size limit",
+		MsgWebhookMediaMIMEDenied:         "media MIME type is not allowed",
+		MsgWebhookCallbackURLInvalid:      "callback URL is invalid or blocked",
+		MsgWebhookLLMTimeout:              "LLM processing timed out",
+		MsgWebhookLaneSaturated:           "webhook processing lane is at capacity",
+		MsgWebhookLocalhostOnlyViolation:  "this webhook is restricted to localhost callers",
+		MsgWebhookMediaChannelUnsupported: "channel does not support media attachments",
+		MsgWebhookIPDenied:                "request origin is not in the IP allowlist",
+		MsgWebhookEncryptionUnavailable:   "webhook encryption key not configured; set GOCLAW_ENCRYPTION_KEY to enable webhooks",
+
 		// Hooks
 		MsgHookInvalidMatcher:          "invalid matcher regex: %s",
 		MsgHookCommandDisabledStandard: "command-type hooks are only available on Lite edition",
@@ -230,7 +264,7 @@ func init() {
 		MsgWorkstationEnvDenied:    "env var denied by policy: %s",
 		MsgWorkstationInputInvalid: "command contains invalid characters: %s",
 		MsgWorkstationRateLimit:    "workstation rate limit exceeded",
-		MsgWorkstationPermNotFound:  "permission entry not found: %s",
+		MsgWorkstationPermNotFound: "permission entry not found: %s",
 		// Workstation activity (Phase 7)
 		MsgWorkstationActivityTitle: "Recent Activity",
 		MsgWorkstationActionExec:    "Exec",
@@ -245,5 +279,14 @@ func init() {
 		MsgUpdateSwapFailed:     "Failed to install %s; previous version restored",
 		MsgUpdateManifestDesync: "Binary updated but manifest save failed — manual recovery required for %s",
 		MsgUpdateCacheStale:     "Updates cache stale; run refresh before applying an update",
+
+		// Grant env validation
+		MsgGrantEnvDeniedKeys:   "env keys not allowed: %s",
+		MsgGrantEnvValueInvalid: "invalid env value: %s",
+		MsgGrantEnvTooManyKeys:  "too many env keys: max 50",
+		MsgGrantEnvRevealLimit:  "rate limit exceeded for env reveal — try again later",
+
+		// Message tool cross-target forward notice
+		MessageCrossTargetForwarded: "📤 Forwarded to %s as requested: %q",
 	})
 }

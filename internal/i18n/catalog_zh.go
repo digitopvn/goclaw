@@ -73,6 +73,8 @@ func init() {
 		MsgAlreadySummoning:      "Agent正在被召唤中",
 		MsgSummoningUnavailable:  "召唤功能不可用",
 		MsgNoDescription:         "Agent没有可供重新召唤的描述",
+		MsgSummonCancelled:       "已取消召唤",
+		MsgCannotCancel:          "Agent 未处于召唤状态",
 		MsgInvalidPath:           "路径无效",
 
 		// Tenant backup / restore
@@ -92,12 +94,12 @@ func init() {
 		MsgNotImplemented: "%s 尚未实现",
 
 		// Agent links
-		MsgLinksNotConfigured:   "Agent链接未配置",
-		MsgInvalidDirection:     "方向必须是 outbound、inbound 或 bidirectional",
-		MsgSourceTargetSame:     "源和目标必须是不同的Agent",
-		MsgCannotDelegateOpen:   "无法委派给开放型Agent — 只有预定义Agent才能作为委派目标",
-		MsgNoUpdatesProvided:    "未提供更新内容",
-		MsgInvalidLinkStatus:    "状态必须是 active 或 disabled",
+		MsgLinksNotConfigured: "Agent链接未配置",
+		MsgInvalidDirection:   "方向必须是 outbound、inbound 或 bidirectional",
+		MsgSourceTargetSame:   "源和目标必须是不同的Agent",
+		MsgCannotDelegateOpen: "无法委派给开放型Agent — 只有预定义Agent才能作为委派目标",
+		MsgNoUpdatesProvided:  "未提供更新内容",
+		MsgInvalidLinkStatus:  "状态必须是 active 或 disabled",
 
 		// Teams
 		MsgTeamsNotConfigured:   "团队未配置",
@@ -111,6 +113,7 @@ func init() {
 		// Skills
 		MsgSkillsUpdateNotSupported: "基于文件的Skill不支持 skills.update",
 		MsgCannotResolveSkillID:     "无法解析基于文件的Skill ID",
+		MsgInvalidVisibility:        "无效的 visibility %q：必须为 private 或 public",
 
 		// Logs
 		MsgInvalidLogAction: "action 必须是 'start' 或 'stop'",
@@ -197,14 +200,45 @@ func init() {
 		MsgTenantScopeRequired: "此操作需要指定租户范围",
 
 		// TTS / 声音
-		MsgTtsUnknownModel:  "未知的 tts 模型：%s",
-		MsgVoicesListFailed: "获取声音列表失败：%s",
+		MsgTtsUnknownModel:       "未知的 tts 模型：%s",
+		MsgVoicesListFailed:      "获取声音列表失败：%s",
+		MsgTtsGeminiInvalidVoice: "无效的 Gemini 声音：%s",
+		MsgTtsGeminiSpeakerLimit: "Gemini TTS 最多支持 2 位发言人",
+		MsgTtsGeminiInvalidModel:  "无效的 Gemini TTS 模型：%s",
+		MsgTtsGeminiTextOnly:      "Gemini 拒绝生成音频。请尝试更简单的文本，不要翻译或添加评论。",
+		MsgTtsParamOutOfRange:     "TTS 参数 %q 的值 %v 超出范围 [%v, %v]",
+		MsgTtsParamUnknownKey:     "TTS 参数 %q 不受此提供商支持",
+		MsgTtsMiniMaxVoicesFailed: "获取 MiniMax 声音列表失败：%s",
 
 		// STT
 		MsgSTTAllProvidersFailed:     "所有 STT 提供商均失败",
 		MsgSTTLegacyConfigDeprecated: "旧版 STT 配置已弃用；请迁移至 builtin_tools[stt]",
 		MsgSTTWhatsappPrivacyWarning: "为 WhatsApp 启用 STT 将破坏发送至此 Agent 的语音消息的端对端加密。",
 		MsgVoiceMessageFallback:      "[语音消息]",
+
+		// Webhooks
+		MsgWebhookAuthFailed:              "Webhook 身份验证失败",
+		MsgWebhookHMACInvalid:             "HMAC 签名无效",
+		MsgWebhookHMACTimestampSkew:       "请求时间戳超出可接受窗口",
+		MsgWebhookBearerRequiredHMAC:      "此 Webhook 需要 HMAC 身份验证",
+		MsgWebhookRevoked:                 "Webhook 已被撤销",
+		MsgWebhookKindMismatch:            "请求类型与 Webhook 配置不匹配",
+		MsgWebhookRateLimited:             "超出 Webhook 速率限制",
+		MsgWebhookBodyTooLarge:            "请求正文超出大小限制",
+		MsgWebhookIdempotencyConflict:     "幂等键冲突：请求正文不匹配",
+		MsgWebhookTenantMismatch:          "Webhook 租户不匹配",
+		MsgWebhookAgentNotFound:           "未找到 Webhook 代理",
+		MsgWebhookChannelNotFound:         "未找到 Webhook 频道",
+		MsgWebhookMediaSSRFBlocked:        "媒体 URL 被 SSRF 策略拦截",
+		MsgWebhookMediaTooLarge:           "媒体文件超出大小限制",
+		MsgWebhookMediaMIMEDenied:         "媒体 MIME 类型不被允许",
+		MsgWebhookCallbackURLInvalid:      "回调 URL 无效或被拦截",
+		MsgWebhookLLMTimeout:              "LLM 处理超时",
+		MsgWebhookLaneSaturated:           "Webhook 处理通道已满",
+		MsgWebhookLocalhostOnlyViolation:  "此 Webhook 仅限本地调用",
+		MsgWebhookMediaChannelUnsupported: "频道不支持媒体附件",
+		MsgWebhookIPDenied:                "请求来源不在 IP 白名单中",
+		MsgWebhookEncryptionUnavailable:   "Webhook 加密密钥未配置；请设置 GOCLAW_ENCRYPTION_KEY 以启用 Webhook",
 
 		// Hooks
 		// Workstation
@@ -230,7 +264,7 @@ func init() {
 		MsgWorkstationEnvDenied:    "环境变量被策略拒绝: %s",
 		MsgWorkstationInputInvalid: "命令包含无效字符: %s",
 		MsgWorkstationRateLimit:    "已超过工作站速率限制",
-		MsgWorkstationPermNotFound:  "未找到权限条目: %s",
+		MsgWorkstationPermNotFound: "未找到权限条目: %s",
 		// Workstation activity (Phase 7)
 		MsgWorkstationActivityTitle: "近期活动",
 		MsgWorkstationActionExec:    "执行",
@@ -245,5 +279,14 @@ func init() {
 		MsgUpdateSwapFailed:     "安装 %s 失败；已恢复旧版本",
 		MsgUpdateManifestDesync: "二进制文件已更新但清单保存失败 — %s 需要手动恢复",
 		MsgUpdateCacheStale:     "更新缓存已过期；请先刷新再应用更新",
+
+		// Grant env validation
+		MsgGrantEnvDeniedKeys:   "不允许的环境变量键：%s",
+		MsgGrantEnvValueInvalid: "无效的环境变量值：%s",
+		MsgGrantEnvTooManyKeys:  "环境变量键过多：最多 50 个",
+		MsgGrantEnvRevealLimit:  "env 查看请求超出速率限制，请稍后再试",
+
+		// Message tool cross-target forward notice
+		MessageCrossTargetForwarded: "📤 已按请求转发至 %s:%q",
 	})
 }

@@ -73,6 +73,8 @@ func init() {
 		MsgAlreadySummoning:      "agent đang được triệu hồi",
 		MsgSummoningUnavailable:  "triệu hồi không khả dụng",
 		MsgNoDescription:         "agent không có mô tả để triệu hồi lại",
+		MsgSummonCancelled:       "đã huỷ triệu hồi",
+		MsgCannotCancel:          "agent không trong trạng thái đang triệu hồi",
 		MsgInvalidPath:           "đường dẫn không hợp lệ",
 
 		// Tenant backup / restore
@@ -92,12 +94,12 @@ func init() {
 		MsgNotImplemented: "%s chưa được triển khai",
 
 		// Agent links
-		MsgLinksNotConfigured:   "liên kết agent chưa được cấu hình",
-		MsgInvalidDirection:     "hướng phải là outbound, inbound hoặc bidirectional",
-		MsgSourceTargetSame:     "nguồn và đích phải là các agent khác nhau",
-		MsgCannotDelegateOpen:   "không thể ủy quyền cho agent mở — chỉ agent định sẵn mới có thể là đích ủy quyền",
-		MsgNoUpdatesProvided:    "không có cập nhật nào được cung cấp",
-		MsgInvalidLinkStatus:    "trạng thái phải là active hoặc disabled",
+		MsgLinksNotConfigured: "liên kết agent chưa được cấu hình",
+		MsgInvalidDirection:   "hướng phải là outbound, inbound hoặc bidirectional",
+		MsgSourceTargetSame:   "nguồn và đích phải là các agent khác nhau",
+		MsgCannotDelegateOpen: "không thể ủy quyền cho agent mở — chỉ agent định sẵn mới có thể là đích ủy quyền",
+		MsgNoUpdatesProvided:  "không có cập nhật nào được cung cấp",
+		MsgInvalidLinkStatus:  "trạng thái phải là active hoặc disabled",
 
 		// Teams
 		MsgTeamsNotConfigured:   "nhóm chưa được cấu hình",
@@ -111,6 +113,7 @@ func init() {
 		// Skills
 		MsgSkillsUpdateNotSupported: "skills.update không được hỗ trợ với skill dựa trên tệp",
 		MsgCannotResolveSkillID:     "không thể xác định ID skill dựa trên tệp",
+		MsgInvalidVisibility:        "visibility không hợp lệ %q: phải là private hoặc public",
 
 		// Logs
 		MsgInvalidLogAction: "action phải là 'start' hoặc 'stop'",
@@ -197,14 +200,45 @@ func init() {
 		MsgTenantScopeRequired: "cần xác định tenant để thực hiện thao tác này",
 
 		// TTS / Giọng đọc
-		MsgTtsUnknownModel:  "model tts không hỗ trợ: %s",
-		MsgVoicesListFailed: "không tải được danh sách giọng đọc: %s",
+		MsgTtsUnknownModel:       "model tts không hỗ trợ: %s",
+		MsgVoicesListFailed:      "không tải được danh sách giọng đọc: %s",
+		MsgTtsGeminiInvalidVoice: "giọng đọc Gemini không hợp lệ: %s",
+		MsgTtsGeminiSpeakerLimit: "Gemini TTS hỗ trợ tối đa 2 người nói",
+		MsgTtsGeminiInvalidModel:  "mô hình Gemini TTS không hợp lệ: %s",
+		MsgTtsGeminiTextOnly:      "Gemini từ chối tạo âm thanh. Vui lòng thử văn bản đơn giản hơn, không dịch hay bình luận.",
+		MsgTtsParamOutOfRange:     "tham số TTS %q có giá trị %v nằm ngoài phạm vi [%v, %v]",
+		MsgTtsParamUnknownKey:     "tham số TTS %q không được nhà cung cấp này hỗ trợ",
+		MsgTtsMiniMaxVoicesFailed: "không tải được danh sách giọng đọc MiniMax: %s",
 
 		// STT
 		MsgSTTAllProvidersFailed:     "Tất cả nhà cung cấp STT đều thất bại",
 		MsgSTTLegacyConfigDeprecated: "Cấu hình STT cũ đã lỗi thời; hãy chuyển sang builtin_tools[stt]",
 		MsgSTTWhatsappPrivacyWarning: "Bật STT cho WhatsApp sẽ phá vỡ mã hóa đầu cuối cho tin nhắn thoại gửi đến agent này.",
 		MsgVoiceMessageFallback:      "[Tin nhắn thoại]",
+
+		// Webhooks
+		MsgWebhookAuthFailed:              "xác thực webhook thất bại",
+		MsgWebhookHMACInvalid:             "chữ ký HMAC không hợp lệ",
+		MsgWebhookHMACTimestampSkew:       "thời gian yêu cầu nằm ngoài cửa sổ chấp nhận",
+		MsgWebhookBearerRequiredHMAC:      "webhook này yêu cầu xác thực HMAC",
+		MsgWebhookRevoked:                 "webhook đã bị thu hồi",
+		MsgWebhookKindMismatch:            "loại yêu cầu không khớp cấu hình webhook",
+		MsgWebhookRateLimited:             "vượt quá giới hạn tốc độ webhook",
+		MsgWebhookBodyTooLarge:            "nội dung yêu cầu vượt quá giới hạn kích thước",
+		MsgWebhookIdempotencyConflict:     "xung đột idempotency key: nội dung yêu cầu không khớp",
+		MsgWebhookTenantMismatch:          "tenant của webhook không khớp",
+		MsgWebhookAgentNotFound:           "không tìm thấy agent webhook",
+		MsgWebhookChannelNotFound:         "không tìm thấy kênh webhook",
+		MsgWebhookMediaSSRFBlocked:        "URL media bị chặn bởi chính sách SSRF",
+		MsgWebhookMediaTooLarge:           "tệp media vượt quá giới hạn kích thước",
+		MsgWebhookMediaMIMEDenied:         "loại MIME của media không được phép",
+		MsgWebhookCallbackURLInvalid:      "URL callback không hợp lệ hoặc bị chặn",
+		MsgWebhookLLMTimeout:              "LLM xử lý hết thời gian chờ",
+		MsgWebhookLaneSaturated:           "làn xử lý webhook đã đầy",
+		MsgWebhookLocalhostOnlyViolation:  "webhook này chỉ cho phép gọi từ localhost",
+		MsgWebhookMediaChannelUnsupported: "kênh không hỗ trợ tệp đính kèm media",
+		MsgWebhookIPDenied:                "địa chỉ IP không nằm trong danh sách cho phép",
+		MsgWebhookEncryptionUnavailable:   "khóa mã hóa webhook chưa được cấu hình; hãy đặt GOCLAW_ENCRYPTION_KEY để kích hoạt webhook",
 
 		// Hooks
 		// Workstation
@@ -230,7 +264,7 @@ func init() {
 		MsgWorkstationEnvDenied:    "biến môi trường bị từ chối bởi chính sách: %s",
 		MsgWorkstationInputInvalid: "lệnh chứa ký tự không hợp lệ: %s",
 		MsgWorkstationRateLimit:    "đã vượt quá giới hạn tốc độ workstation",
-		MsgWorkstationPermNotFound:  "không tìm thấy mục quyền: %s",
+		MsgWorkstationPermNotFound: "không tìm thấy mục quyền: %s",
 		// Workstation activity (Phase 7)
 		MsgWorkstationActivityTitle: "Hoạt động gần đây",
 		MsgWorkstationActionExec:    "Thực thi",
@@ -245,5 +279,14 @@ func init() {
 		MsgUpdateSwapFailed:     "Không cài được %s; đã khôi phục phiên bản cũ",
 		MsgUpdateManifestDesync: "Binary đã cập nhật nhưng lưu manifest thất bại — cần khôi phục thủ công cho %s",
 		MsgUpdateCacheStale:     "Cache cập nhật đã cũ; hãy refresh trước khi áp dụng",
+
+		// Grant env validation
+		MsgGrantEnvDeniedKeys:   "các khóa env không được phép: %s",
+		MsgGrantEnvValueInvalid: "giá trị env không hợp lệ: %s",
+		MsgGrantEnvTooManyKeys:  "quá nhiều khóa env: tối đa 50",
+		MsgGrantEnvRevealLimit:  "đã vượt giới hạn yêu cầu xem env — vui lòng thử lại sau",
+
+		// Message tool cross-target forward notice
+		MessageCrossTargetForwarded: "📤 Đã forward sang %s theo yêu cầu: %q",
 	})
 }

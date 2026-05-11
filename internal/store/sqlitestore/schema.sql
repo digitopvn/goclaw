@@ -1226,6 +1226,7 @@ CREATE TABLE IF NOT EXISTS secure_cli_agent_grants (
     deny_verbose    TEXT,
     timeout_seconds INTEGER,
     tips            TEXT,
+    encrypted_env   BLOB,
     enabled         BOOLEAN NOT NULL DEFAULT 1,
     tenant_id       TEXT NOT NULL REFERENCES tenants(id),
     created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
@@ -1272,7 +1273,7 @@ CREATE TABLE IF NOT EXISTS agent_heartbeats (
     enabled            BOOLEAN NOT NULL DEFAULT 0,
     interval_sec       INT NOT NULL DEFAULT 1800,
     prompt             TEXT,
-    provider_id        TEXT REFERENCES llm_providers(id),
+    provider_id        TEXT REFERENCES llm_providers(id) ON DELETE SET NULL,
     model              VARCHAR(200),
     isolated_session   BOOLEAN NOT NULL DEFAULT 1,
     light_context      BOOLEAN NOT NULL DEFAULT 0,
@@ -1521,6 +1522,7 @@ CREATE TABLE IF NOT EXISTS vault_documents (
     tenant_id     TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
     agent_id      TEXT REFERENCES agents(id) ON DELETE SET NULL,
     team_id       TEXT REFERENCES agent_teams(id) ON DELETE SET NULL,
+    chat_id       TEXT,  -- NULL = team-wide (shared / legacy); non-NULL = scoped to specific chat for isolated teams
     scope         TEXT NOT NULL DEFAULT 'personal',
     custom_scope  TEXT,
     path          TEXT NOT NULL,
@@ -1547,6 +1549,7 @@ CREATE INDEX IF NOT EXISTS idx_vault_docs_agent_scope ON vault_documents(agent_i
 CREATE INDEX IF NOT EXISTS idx_vault_docs_type ON vault_documents(agent_id, doc_type);
 CREATE INDEX IF NOT EXISTS idx_vault_docs_hash ON vault_documents(content_hash);
 CREATE INDEX IF NOT EXISTS idx_vault_docs_team ON vault_documents(team_id);
+CREATE INDEX IF NOT EXISTS idx_vault_docs_team_chat ON vault_documents(team_id, chat_id) WHERE team_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_vault_docs_basename ON vault_documents(tenant_id, path_basename);
 CREATE INDEX IF NOT EXISTS idx_vault_docs_path_prefix ON vault_documents(tenant_id, path);
 CREATE INDEX IF NOT EXISTS idx_vault_docs_delegation
@@ -1663,7 +1666,82 @@ CREATE TABLE IF NOT EXISTS tenant_hook_budget (
 );
 
 -- ============================================================
--- Table: workstations (migration 000056)
+-- Table: webhooks  (registry, migrations 000059 + 000061)
+-- secret_hash stores SHA-256 hex; used only for bearer-token lookup.
+-- encrypted_secret stores AES-256-GCM(raw_secret, GOCLAW_ENCRYPTION_KEY); decrypted at HMAC sign time.
+-- scopes + ip_allowlist stored as JSON arrays (TEXT) — no native array type.
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS webhooks (
+    id                  TEXT        PRIMARY KEY,
+    tenant_id           TEXT        NOT NULL,
+    agent_id            TEXT        REFERENCES agents(id) ON DELETE SET NULL,
+    name                TEXT        NOT NULL,
+    kind                TEXT        NOT NULL CHECK (kind IN ('llm', 'message')),
+    secret_prefix       TEXT,
+    secret_hash         TEXT        NOT NULL,
+    encrypted_secret    TEXT        NOT NULL DEFAULT '',
+    scopes              TEXT        NOT NULL DEFAULT '[]',
+    channel_id          TEXT,
+    rate_limit_per_min  INTEGER     NOT NULL DEFAULT 60,
+    ip_allowlist        TEXT        NOT NULL DEFAULT '[]',
+    require_hmac        INTEGER     NOT NULL DEFAULT 0,
+    localhost_only      INTEGER     NOT NULL DEFAULT 0,
+    revoked             INTEGER     NOT NULL DEFAULT 0,
+    created_by          TEXT,
+    created_at          TEXT        NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at          TEXT        NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    last_used_at        TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_webhooks_tenant
+    ON webhooks (tenant_id);
+CREATE INDEX IF NOT EXISTS idx_webhooks_tenant_agent
+    ON webhooks (tenant_id, agent_id);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_webhooks_secret
+    ON webhooks (secret_hash)
+    WHERE revoked = 0;
+
+-- ============================================================
+-- Table: webhook_calls  (audit + async state, migrations 000059 + 000060)
+-- request_payload stored as TEXT (canonical JSON: {"body_hash":"...","meta":{...}}).
+-- response stored as TEXT (JSON). BLOB would silently accept non-JSON; TEXT enforces
+-- that callers write valid JSON, matching PG's jsonb column behaviour.
+-- delivery_id: stable UUID across outbound retries; emitted as X-Webhook-Delivery-Id.
+-- lease_token: random UUID set by ClaimNext; guards UpdateStatusCAS for exactly-once delivery.
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS webhook_calls (
+    id               TEXT     PRIMARY KEY,
+    tenant_id        TEXT     NOT NULL,
+    webhook_id       TEXT     NOT NULL REFERENCES webhooks(id) ON DELETE CASCADE,
+    agent_id         TEXT,
+    idempotency_key  TEXT,
+    mode             TEXT     NOT NULL CHECK (mode IN ('sync', 'async')),
+    callback_url     TEXT,
+    status           TEXT     NOT NULL DEFAULT 'queued' CHECK (status IN ('queued', 'running', 'done', 'failed', 'dead')),
+    attempts         INTEGER  NOT NULL DEFAULT 0,
+    delivery_id      TEXT     NOT NULL,
+    next_attempt_at  TEXT,
+    started_at       TEXT,
+    lease_token      TEXT,
+    request_payload  TEXT,
+    response         TEXT,
+    last_error       TEXT,
+    created_at       TEXT     NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    completed_at     TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_webhook_calls_tenant_created
+    ON webhook_calls (tenant_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_webhook_calls_status_attempt
+    ON webhook_calls (status, next_attempt_at);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_webhook_calls_idempotency
+    ON webhook_calls (webhook_id, idempotency_key)
+    WHERE idempotency_key IS NOT NULL;
+
+-- ============================================================
+-- Table: workstations (migration 000062)
 -- metadata and default_env stored as BLOB (AES-256-GCM encrypted).
 -- backend_type constrained to 'ssh' | 'docker'.
 -- ============================================================
@@ -1697,7 +1775,7 @@ CREATE TABLE IF NOT EXISTS agent_workstation_links (
 CREATE INDEX IF NOT EXISTS idx_agent_workstation_tenant ON agent_workstation_links(tenant_id);
 
 -- ============================================================
--- Table: workstation_permissions (migration 000057)
+-- Table: workstation_permissions (migration 000063)
 -- Per-workstation binary allowlist. Default-deny: no matching
 -- enabled pattern → exec rejected. Pattern matches argv[0] only.
 -- ============================================================
@@ -1716,7 +1794,7 @@ CREATE INDEX IF NOT EXISTS idx_workstation_perms_ws ON workstation_permissions(w
 CREATE INDEX IF NOT EXISTS idx_workstation_perms_tenant ON workstation_permissions(tenant_id);
 
 -- ============================================================
--- Table: workstation_activity (migration 000058)
+-- Table: workstation_activity (migration 000064)
 -- Rolling audit log for exec and deny events. Append-only;
 -- pruned nightly (rows older than 30 days) via Prune().
 -- cmd_preview: first 200 chars, secrets redacted.
