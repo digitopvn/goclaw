@@ -247,7 +247,9 @@ export const configSchema: Record<string, FieldDef[]> = {
       { value: "O", label: "O — Open Channel bot (customer-facing queue)" },
     ], defaultValue: "B", help: "Forwarded verbatim to imbot.register TYPE. \"B\" = standard internal bot for portal users. \"O\" = Open Channel bot attached to a queue; per-user MCP credential minting is skipped because senders are transient customers." },
     { key: "bot_avatar", label: "Bot Avatar URL", type: "text", placeholder: "https://...", help: "Optional avatar URL — fetched and base64-encoded at Start()." },
-    { key: "public_url", label: "Public URL", type: "text", required: true, placeholder: "https://gateway.example.com", help: "Public base URL of this gateway. Bitrix24 imbot.register requires absolute URLs for event callbacks." },
+    // public_url removed v260513 — gateway URL is now captured automatically
+    // from the install handler request and stored on the portal row. See
+    // plans/260513-1648-bitrix24-portal-self-service-ux.
     { key: "dm_policy", label: "DM Policy", type: "select", options: dmPolicyOptions, defaultValue: "pairing" },
     { key: "group_policy", label: "Group Policy", type: "select", options: groupPolicyOptions, defaultValue: "open" },
     { key: "require_mention", label: "Require @mention in groups", type: "boolean", defaultValue: true, help: "Only respond in group chats when the bot is explicitly @mentioned." },
