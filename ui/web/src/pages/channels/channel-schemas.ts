@@ -239,7 +239,7 @@ export const configSchema: Record<string, FieldDef[]> = {
     { key: "block_reply", label: "Block Reply", type: "select", options: blockReplyOptions, defaultValue: "inherit" },
   ],
   bitrix24: [
-    { key: "portal", label: "Portal", type: "text", required: true, placeholder: "my-portal", help: "bitrix_portals.name for this tenant. Authorize the portal at /bitrix24/install first." },
+    { key: "portal", label: "Portal", type: "text", required: true, placeholder: "my-portal", help: "Select an existing Bitrix24 portal, or click \"+ Create new portal\" to connect a new one." },
     { key: "bot_code", label: "Bot Code", type: "text", required: true, placeholder: "support_bot", help: "Stable key passed to imbot.register. Must be unique per portal." },
     { key: "bot_name", label: "Bot Name", type: "text", required: true, placeholder: "Support Bot", help: "Display name shown in Bitrix24 chats." },
     { key: "bot_type", label: "Bot Type", type: "select", options: [
