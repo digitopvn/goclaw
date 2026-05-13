@@ -406,6 +406,15 @@ func BuildSystemPrompt(cfg SystemPromptConfig) string {
 		if cfg.HasMCPToolSearch {
 			lines = append(lines, buildMCPToolsSearchSection()...)
 		}
+		// C6 (Phase 4): CRM data freshness reminder. When the agent has MCP
+		// tools available for CRM operations (e.g. Bitrix24), the LLM may
+		// recall data from conversation history instead of re-fetching —
+		// causing it to surface fields the user no longer has permission to
+		// see (admin changed CRM access between turns). Explicit policy here
+		// nudges the LLM to re-fetch for record lookups.
+		if isFull && cfg.ChannelType == "bitrix24" {
+			lines = append(lines, buildCRMFreshnessSection()...)
+		}
 	}
 
 	// 6. ## Workspace (sandbox-aware: show container workdir when sandboxed)

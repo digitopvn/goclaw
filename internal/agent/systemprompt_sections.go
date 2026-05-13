@@ -25,6 +25,27 @@ const mcpOptionalParamInstruction = "**Optional parameters:** Only include param
 // discoverability with prompt budget.
 const mcpToolDescMaxLen = 200
 
+// buildCRMFreshnessSection emits a Bitrix24-specific data-freshness reminder.
+// LLMs tend to recall CRM record fields from earlier conversation turns;
+// when admin changes the user's CRM permission mid-session, the LLM may
+// surface fields the user no longer can see. Explicit re-fetch instruction
+// nudges it to call MCP tools for record lookups instead of using memory.
+//
+// Scoped to Bitrix24 channel only — other channels don't (yet) have
+// per-user CRM permissions to enforce.
+func buildCRMFreshnessSection() []string {
+	return []string{
+		"## CRM Data Freshness Policy",
+		"",
+		"Bitrix24 CRM permissions can change mid-conversation. When asked about a specific CRM record (lead, deal, contact, task, calendar event):",
+		"",
+		"- ALWAYS call the appropriate MCP tool to fetch current data — do NOT recall field values (amount, status, dates, assignee) from earlier turns in this conversation.",
+		"- For general questions (how to use the bot, explain CRM concepts), memory recall is fine.",
+		"- If a tool call returns 403 / `permission denied` / `Insufficient access`, reply that the user lacks permission — do not work around it with cached data.",
+		"",
+	}
+}
+
 // buildMCPToolsSearchSection generates the MCP tools search instruction block.
 // Shown when mcp_tool_search is registered — may appear alongside the inline
 // section in hybrid mode (some tools inline, rest discoverable via search).

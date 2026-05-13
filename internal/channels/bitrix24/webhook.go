@@ -20,6 +20,14 @@ import (
 // logs and is noisy — intended for one-shot capture during debugging.
 var bitrix24LogRawEvent = strings.TrimSpace(os.Getenv("BITRIX24_LOG_RAW_EVENT")) == "1"
 
+// bitrix24DebugUnredactedToken is a one-shot verify switch. When set
+// (env BITRIX24_DEBUG_UNREDACTED_TOKEN=1), handleEvent logs auth tokens
+// UNMASKED for the verify-token-identity script (Phase 0 of plan
+// 260512-1640-bitrix24-mcp-permission-fix). NEVER leave on in production
+// — full OAuth bearer in logs is a credential leak. Toggle on, capture
+// one event, toggle off.
+var bitrix24DebugUnredactedToken = strings.TrimSpace(os.Getenv("BITRIX24_DEBUG_UNREDACTED_TOKEN")) == "1"
+
 // isRedactedEventKey returns true for form keys whose values carry OAuth
 // credentials that must never appear verbatim in logs. Bitrix24 duplicates
 // the same tokens under multiple paths — top-level `auth[access_token]` AND
@@ -98,6 +106,40 @@ func dumpRawEvent(evt *Event) {
 		"body", b.String())
 }
 
+// dumpEventAuthDebug emits an UNMASKED token dump for Phase 0 verify of
+// plan 260512-1640-bitrix24-mcp-permission-fix. Gated by env
+// BITRIX24_DEBUG_UNREDACTED_TOKEN=1.
+//
+// Output is a single WARN line so it stands out in logs and is greppable:
+//
+//	grep "bitrix24 event: DEBUG unredacted token dump" goclaw.log | tail -1
+//
+// Use the access_token field to run verify-token-identity.sh:
+//
+//	./verify-token-identity.sh "<access_token>" "<sender_id>"
+//
+// Confirms whether auth.access_token is bound to sender (Bitrix v1 spec)
+// or installer/app (rebuts hypothesis S1).
+//
+// CRITICAL: toggle BITRIX24_DEBUG_UNREDACTED_TOKEN=0 (or unset) after
+// capture. Leaving on means every event leaks a fresh 1h OAuth bearer
+// into logs.
+func dumpEventAuthDebug(evt *Event) {
+	if evt == nil {
+		return
+	}
+	slog.Warn("bitrix24 event: DEBUG unredacted token dump",
+		"event_type", evt.Type,
+		"domain", evt.Auth.Domain,
+		"sender_id", evt.Params.FromUserID,
+		"auth_user_id_member", evt.Auth.MemberID,
+		"access_token", evt.Auth.AccessToken,
+		"refresh_token", evt.Auth.RefreshToken,
+		"scope", evt.Auth.Scope,
+		"expires_in", evt.Auth.ExpiresIn,
+		"warning", "UNMASKED — turn off BITRIX24_DEBUG_UNREDACTED_TOKEN after capture",
+	)
+}
 
 // maxInstallBodyBytes caps the /bitrix24/install body. Real install callbacks
 // are a few hundred bytes; the cap is only defense-in-depth against a public
@@ -134,6 +176,13 @@ const maxInstallBodyBytes = 64 << 10 // 64 KiB
 // doesn't leave an orphan tab; errors are plain text with short messages
 // (detail goes to slog, never to the admin's screen).
 func (r *Router) handleInstall(w http.ResponseWriter, req *http.Request) {
+	// Accept HEAD for partners.bitrix24.com URL reachability ping (some
+	// validators issue HEAD before GET). HEAD never carries an install
+	// payload so respond 200 immediately and skip the body.
+	if req.Method == http.MethodHead {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
 	if req.Method != http.MethodGet && req.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -165,6 +214,15 @@ func (r *Router) handleInstall(w http.ResponseWriter, req *http.Request) {
 	domain := strings.TrimSpace(req.Form.Get("domain"))
 
 	if code == "" || stateParam == "" {
+		// Bitrix24 partner registration validates installer URL with a plain
+		// GET (no params). Return a 200 placeholder so registration passes
+		// without weakening the real-install error path: a POST without
+		// proper params is still a bad install attempt and gets 400.
+		if req.Method == http.MethodGet {
+			renderBitrixPlaceholder(w, "GoClaw — Bitrix24 Install Endpoint",
+				"This URL is invoked by Bitrix24 during application installation.")
+			return
+		}
 		http.Error(w, "missing code or state (OAuth) / AUTH_ID+REFRESH_ID (Local App)", http.StatusBadRequest)
 		return
 	}
@@ -327,6 +385,14 @@ func (r *Router) handleEvent(w http.ResponseWriter, req *http.Request) {
 		dumpRawEvent(evt)
 	}
 
+	// Phase 0 verify-token-identity helper. Gated by env
+	// BITRIX24_DEBUG_UNREDACTED_TOKEN=1. Emits a single WARN line with
+	// the sender's access_token UNMASKED so operators can pipe it into
+	// verify-token-identity.sh. Toggle OFF after capture.
+	if bitrix24DebugUnredactedToken {
+		dumpEventAuthDebug(evt)
+	}
+
 	if evt.Auth.Domain == "" {
 		writeJSONError(w, http.StatusBadRequest, "missing auth.domain")
 		return
@@ -372,11 +438,23 @@ func (r *Router) handleEvent(w http.ResponseWriter, req *http.Request) {
 		}
 	}
 	if !secureEqual(want, got) {
-		slog.Warn("security.bitrix24_apptoken_mismatch",
-			"tenant", portal.TenantID(), "portal", portal.Name(),
-			"domain", evt.Auth.Domain, "event", evt.Type)
-		writeJSONError(w, http.StatusUnauthorized, "invalid application_token")
-		return
+		// Attempt safe rotation (reinstall can rotate app_token). Only succeeds when member_id matches.
+		if rotated, err := portal.RotateAppTokenIfTrusted(req.Context(), evt.Auth.MemberID, got); err == nil && rotated {
+			// Re-check with updated token.
+			want = portal.AppToken()
+			if secureEqual(want, got) {
+				slog.Info("bitrix24 event: app_token rotated, continuing",
+					"tenant", portal.TenantID(), "portal", portal.Name(),
+					"domain", evt.Auth.Domain, "event", evt.Type)
+			}
+		}
+		if !secureEqual(want, got) {
+			slog.Warn("security.bitrix24_apptoken_mismatch",
+				"tenant", portal.TenantID(), "portal", portal.Name(),
+				"domain", evt.Auth.Domain, "event", evt.Type)
+			writeJSONError(w, http.StatusUnauthorized, "invalid application_token")
+			return
+		}
 	}
 
 	// Dedup by (domain, MESSAGE_ID). Events without MESSAGE_ID (e.g. joinChat)
@@ -490,4 +568,51 @@ func secureEqual(a, b string) bool {
 		diff |= a[i] ^ b[i]
 	}
 	return diff == 0
+}
+
+// renderBitrixPlaceholder writes a minimal 200 OK HTML page used when
+// partners.bitrix24.com validates a registered app's URLs at registration
+// time (Application URL / Application installer URL / Application settings
+// handler). Bitrix performs a plain GET and rejects any non-2xx response.
+//
+// Kept intentionally tiny and content-free — the production behavior at
+// these URLs (real install POST, app iframe load with AUTH_ID, etc.) is
+// handled by the matching handler dispatch; this helper only covers the
+// validation ping path.
+func renderBitrixPlaceholder(w http.ResponseWriter, title, body string) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(`<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>` + title + `</title>
+<style>body{font:15px/1.5 system-ui,sans-serif;padding:2rem;color:#222}h1{margin:0 0 .5rem}</style>
+</head><body><h1>` + title + `</h1><p>` + body + `</p></body></html>`))
+}
+
+// handleAppPage serves /bitrix24/handler — the URL Bitrix24 iframe-loads
+// when a user opens the GoClaw app inside their portal interface. Used as
+// the "Application URL" and "Application settings handler" in the partner
+// app registration form.
+//
+// Phase 0: respond 200 placeholder so partners.bitrix24.com URL validation
+// passes during app registration. The page itself is informational only.
+//
+// Phase 1 (later, when needed): on POST, Bitrix24 delivers the opening
+// user's tokens via form fields (AUTH_ID, REFRESH_ID, member_id, DOMAIN,
+// AUTH_EXPIRES) per the simplified OAuth scenario. That path will forward
+// the tokens to the MCP server's /api/auto-onboard so the user gets a
+// per-user USR_ key without needing an explicit OAuth callback flow.
+func (r *Router) handleAppPage(w http.ResponseWriter, req *http.Request) {
+	// Accept HEAD for Bitrix24 URL reachability ping at registration time.
+	if req.Method == http.MethodHead {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	if req.Method != http.MethodGet && req.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	renderBitrixPlaceholder(w,
+		"GoClaw — Bitrix24 Application",
+		"This page is loaded inside Bitrix24 when a user opens the GoClaw bot application.")
 }
