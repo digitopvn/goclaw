@@ -54,17 +54,20 @@ func TestSystemPromptBitrix24EntityLinkSection(t *testing.T) {
 	cfg.Channel = "bitrix-sales"
 	cfg.ChannelType = "bitrix24"
 	cfg.BitrixPortalDomain = "tamgiac.bitrix24.com"
+	cfg.SenderID = "614" // numeric Bitrix24 user id from FROM_USER_ID
 
 	prompt := BuildSystemPrompt(cfg)
 
 	for _, want := range []string{
 		"## Bitrix24 Entity URLs",
 		"Portal domain: `tamgiac.bitrix24.com`",
+		// Task URL must substitute the sender's user_id directly so the LLM
+		// doesn't fall back to the placeholder path (which 404s).
+		"https://tamgiac.bitrix24.com/company/personal/user/614/tasks/task/view/{task_id}/",
 		"https://tamgiac.bitrix24.com/crm/deal/details/{deal_id}/",
 		"https://tamgiac.bitrix24.com/crm/lead/details/{lead_id}/",
 		"https://tamgiac.bitrix24.com/crm/contact/details/{contact_id}/",
 		"https://tamgiac.bitrix24.com/crm/company/details/{company_id}/",
-		"https://tamgiac.bitrix24.com/tasks/task/view/{task_id}/",
 		"https://tamgiac.bitrix24.com/shop/orders/details/{order_id}/",
 		"https://tamgiac.bitrix24.com/shop/orders/payment/details/{payment_id}/",
 		"https://tamgiac.bitrix24.com/shop/orders/shipment/details/{shipment_id}/",
@@ -124,6 +127,41 @@ func TestSystemPromptBitrix24EntityLinkSection_SkippedWhenDomainEmpty(t *testing
 	}
 }
 
+// When senderID is non-numeric or empty (cron, synthetic dispatch, system
+// runs), the Task URL falls back to a placeholder pattern instead of putting
+// junk into the path. Numeric substitution is gated by isNumericID.
+func TestBuildBitrix24EntityLinkSection_SenderIDGate(t *testing.T) {
+	cases := []struct {
+		name      string
+		sender    string
+		wantSubst bool // expect numeric user id baked into Task URL
+	}{
+		{"numeric_sender_substitutes", "614", true},
+		{"empty_sender_uses_placeholder", "", false},
+		{"non_numeric_sender_uses_placeholder", "ticker:system", false},
+		{"telegram_username_form_rejected", "12345|alice", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			lines := buildBitrix24EntityLinkSection("tamgiac.bitrix24.com", tc.sender)
+			joined := strings.Join(lines, "\n")
+			if tc.wantSubst {
+				want := "/company/personal/user/" + tc.sender + "/tasks/task/view/"
+				if !strings.Contains(joined, want) {
+					t.Errorf("Task URL did not substitute sender %q; got: %s", tc.sender, joined)
+				}
+			} else {
+				if !strings.Contains(joined, "{viewer_user_id}") {
+					t.Errorf("Task URL should fall back to placeholder for sender %q; got: %s", tc.sender, joined)
+				}
+				if tc.sender != "" && strings.Contains(joined, "/user/"+tc.sender+"/") {
+					t.Errorf("non-numeric sender %q leaked into URL path: %s", tc.sender, joined)
+				}
+			}
+		})
+	}
+}
+
 // Tolerates accidental scheme/path in channel config (some installers pasted
 // the full client_endpoint URL); helper must extract just the host.
 func TestBuildBitrix24EntityLinkSection_NormalizesInput(t *testing.T) {
@@ -134,7 +172,7 @@ func TestBuildBitrix24EntityLinkSection_NormalizesInput(t *testing.T) {
 		"  tamgiac.bitrix24.com  ",
 	}
 	for _, in := range cases {
-		lines := buildBitrix24EntityLinkSection(in)
+		lines := buildBitrix24EntityLinkSection(in, "614")
 		joined := strings.Join(lines, "\n")
 		if !strings.Contains(joined, "Portal domain: `tamgiac.bitrix24.com`") {
 			t.Errorf("input %q did not normalize to bare domain; got: %s", in, joined)

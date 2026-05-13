@@ -108,6 +108,7 @@ type SystemPromptConfig struct {
 	ChatTitle     string                  // group chat display name (shown in identity line)
 	PeerKind      string                  // "direct" or "group"
 	OwnerIDs      []string                // owner sender IDs
+	SenderID      string                  // current message sender's external ID (numeric for Bitrix24 / Telegram, used to substitute into entity URLs)
 	Mode          PromptMode              // full or minimal
 	ToolNames     []string                // registered tool names
 	SkillsSummary string                  // XML from skills.Loader.BuildSummary()
@@ -422,7 +423,7 @@ func BuildSystemPrompt(cfg SystemPromptConfig) string {
 			// Entity link domain hint: LLM otherwise hallucinates
 			// "bitrix24.example.com" when asked to send a record URL.
 			if cfg.BitrixPortalDomain != "" {
-				lines = append(lines, buildBitrix24EntityLinkSection(cfg.BitrixPortalDomain)...)
+				lines = append(lines, buildBitrix24EntityLinkSection(cfg.BitrixPortalDomain, cfg.SenderID)...)
 			}
 		}
 	}

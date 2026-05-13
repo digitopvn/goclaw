@@ -215,6 +215,7 @@ func (l *Loop) buildMessages(ctx context.Context, history []providers.Message, s
 		ChatTitle:              chatTitle,
 		PeerKind:               peerKind,
 		OwnerIDs:               l.ownerIDs,
+		SenderID:               store.SenderIDFromContext(ctx),
 		Mode:                   mode,
 		ToolNames:              toolNames,
 		SkillsSummary:          l.resolveSkillsSummary(ctx, skillFilter),
