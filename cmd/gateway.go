@@ -11,6 +11,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/nextlevelbuilder/goclaw/internal/agent"
 	"github.com/nextlevelbuilder/goclaw/internal/bgalert"
 	"github.com/nextlevelbuilder/goclaw/internal/bootstrap"
@@ -523,7 +525,25 @@ func runGateway() {
 	registerConfigChannels(cfg, channelMgr, msgBus, pgStores, instanceLoader, audioMgr)
 
 	// Register channels/instances/links/teams RPC methods
-	wireChannelRPCMethods(server, pgStores, channelMgr, agentRouter, msgBus, workspace)
+	chInstancesM := wireChannelRPCMethods(server, pgStores, channelMgr, agentRouter, msgBus, workspace)
+
+	// Bitrix24 orphan-bot cleaner. Fires from channel_instances delete handler
+	// when the channel is no longer loaded in the Manager (typical scenario:
+	// admin disabled the channel earlier so InstanceLoader.Reload removed it).
+	// Without this, deleting a disabled Bitrix24 channel would orphan the bot
+	// on the portal.
+	if pgStores.BitrixPortals != nil {
+		bitrixEncKey := os.Getenv("GOCLAW_ENCRYPTION_KEY")
+		orphanCleaner := func(ctx context.Context, tenantID uuid.UUID, cfg []byte) error {
+			return bitrix24.DestroyOrphanBot(ctx, pgStores.BitrixPortals, bitrixEncKey, tenantID, cfg)
+		}
+		if channelInstancesH != nil {
+			channelInstancesH.RegisterOrphanCleaner(channels.TypeBitrix24, orphanCleaner)
+		}
+		if chInstancesM != nil {
+			chInstancesM.RegisterOrphanCleaner(channels.TypeBitrix24, orphanCleaner)
+		}
+	}
 
 	// Wire channel event subscribers (cache invalidation, pairing, cascade disable)
 	wireChannelEventSubscribers(msgBus, server, pgStores, channelMgr, instanceLoader, pairingMethods, cfg)

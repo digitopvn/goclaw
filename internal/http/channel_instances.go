@@ -1,6 +1,7 @@
 package http
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -17,6 +18,17 @@ import (
 	"github.com/nextlevelbuilder/goclaw/pkg/protocol"
 )
 
+// OrphanChannelCleaner runs channel-type-specific cleanup when a delete
+// arrives for a channel that's NOT loaded in the runtime Manager (e.g. it
+// was disabled so InstanceLoader removed it). Closure injected from
+// cmd/gateway.go captures the per-channel dependencies (portal store,
+// encryption key) so the handler doesn't need to import per-channel
+// packages directly.
+//
+// Returns nil for no-op cases (nothing to clean) so callers can ignore the
+// error in those situations; real failures (store read, decode) propagate.
+type OrphanChannelCleaner func(ctx context.Context, tenantID uuid.UUID, configJSON []byte) error
+
 // ChannelInstancesHandler handles channel instance CRUD endpoints.
 type ChannelInstancesHandler struct {
 	store           store.ChannelInstanceStore
@@ -27,6 +39,9 @@ type ChannelInstancesHandler struct {
 	msgBus          *bus.MessageBus
 	memberResolver  channels.MemberResolver // optional — enriches file_writer metadata on addwriter
 	channelMgr      *channels.Manager       // optional — enables ChannelDestroyer hook on delete
+	// orphanCleaners is keyed by channel_type; called when channelMgr.GetChannel
+	// returns false. Keeps handler agnostic of per-channel packages.
+	orphanCleaners map[string]OrphanChannelCleaner
 }
 
 // NewChannelInstancesHandler creates a handler for channel instance management endpoints.
@@ -47,6 +62,17 @@ func (h *ChannelInstancesHandler) SetMemberResolver(r channels.MemberResolver) {
 // in cmd/gateway.go's startup ordering.
 func (h *ChannelInstancesHandler) SetChannelManager(mgr *channels.Manager) {
 	h.channelMgr = mgr
+}
+
+// RegisterOrphanCleaner registers a per-channel-type cleanup function that
+// fires during handleDelete when the channel is no longer loaded in the
+// Manager (typically because admin disabled it). Without this, deleting a
+// disabled Bitrix24 channel leaves the bot as a zombie on the portal.
+func (h *ChannelInstancesHandler) RegisterOrphanCleaner(channelType string, fn OrphanChannelCleaner) {
+	if h.orphanCleaners == nil {
+		h.orphanCleaners = make(map[string]OrphanChannelCleaner)
+	}
+	h.orphanCleaners[channelType] = fn
 }
 
 // RegisterRoutes registers all channel instance routes on the given mux.
@@ -276,15 +302,31 @@ func (h *ChannelInstancesHandler) handleDelete(w http.ResponseWriter, r *http.Re
 	// invalidate → InstanceLoader Reload Stop's the channel and clears
 	// in-memory botID, leaving the upstream bot orphaned.
 	//
+	// Two paths:
+	//   1. Channel still loaded in Manager → ChannelDestroyer.Destroy() —
+	//      uses cached botID, calls imbot.unregister directly via the live
+	//      Client. This is the normal path.
+	//   2. Channel NOT in Manager (e.g. admin disabled it earlier, so
+	//      InstanceLoader.Reload removed it) → fall back to a registered
+	//      orphan cleaner for this channel type. Reads bot_id from
+	//      persisted portal state. Without this branch, deleting a disabled
+	//      Bitrix24 channel orphans the bot on the portal.
+	//
 	// Channels without external state (Telegram, Discord, Slack, …) don't
-	// implement ChannelDestroyer and skip this block.
+	// implement ChannelDestroyer AND don't register an orphan cleaner —
+	// both branches no-op for them.
 	if h.channelMgr != nil {
 		if ch, ok := h.channelMgr.GetChannel(inst.Name); ok {
 			if destroyer, ok := ch.(channels.ChannelDestroyer); ok {
 				if err := destroyer.Destroy(r.Context()); err != nil {
 					slog.Warn("channel_instances.delete: destroyer failed — proceeding with DB delete",
-						"name", inst.Name, "type", inst.ChannelType, "err", err)
+						"name", inst.Name, "tenant_id", inst.TenantID, "type", inst.ChannelType, "err", err)
 				}
+			}
+		} else if cleaner, ok := h.orphanCleaners[inst.ChannelType]; ok && cleaner != nil {
+			if err := cleaner(r.Context(), inst.TenantID, inst.Config); err != nil {
+				slog.Warn("channel_instances.delete: orphan cleaner failed — proceeding with DB delete",
+					"name", inst.Name, "tenant_id", inst.TenantID, "type", inst.ChannelType, "err", err)
 			}
 		}
 	}
