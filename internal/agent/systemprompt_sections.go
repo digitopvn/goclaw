@@ -46,6 +46,49 @@ func buildCRMFreshnessSection() []string {
 	}
 }
 
+// buildBitrix24EntityLinkSection emits per-tenant Bitrix24 entity URL guidance.
+// Without this, the LLM hallucinates a placeholder domain ("bitrix24.example.com")
+// when asked to share a task/deal/contact link — even though the real domain
+// is known from the channel config, the OAuth event, and the portal DB row.
+//
+// Scoped to Bitrix24 channel only. The portal domain is per-tenant (one portal
+// per tenant install), so we inject it dynamically rather than hardcoding into
+// SOUL.md / AGENTS.md. Domain rotates / portal renames flow through to the
+// prompt automatically on the next turn.
+func buildBitrix24EntityLinkSection(portalDomain string) []string {
+	// Trim any accidental scheme/path that may have crept into channel config.
+	d := strings.TrimSpace(portalDomain)
+	d = strings.TrimPrefix(d, "https://")
+	d = strings.TrimPrefix(d, "http://")
+	if i := strings.Index(d, "/"); i >= 0 {
+		d = d[:i]
+	}
+	if d == "" {
+		return nil
+	}
+	base := "https://" + d
+	return []string{
+		"## Bitrix24 Entity URLs",
+		"",
+		"When linking to a Bitrix24 record (task, deal, lead, contact, company, calendar event), build the URL with **this portal's domain** — never use `example.com`, `bitrix24.example.com`, or any placeholder.",
+		"",
+		fmt.Sprintf("- Portal domain: `%s`", d),
+		fmt.Sprintf("- Task:     `%s/company/personal/user/{user_id}/tasks/task/view/{task_id}/`  (or `%s/workgroups/group/{group_id}/tasks/task/view/{task_id}/` for workgroup tasks; fallback `%s/tasks/task/view/{task_id}/`)", base, base, base),
+		fmt.Sprintf("- Deal:     `%s/crm/deal/details/{deal_id}/`", base),
+		fmt.Sprintf("- Lead:     `%s/crm/lead/details/{lead_id}/`", base),
+		fmt.Sprintf("- Contact:  `%s/crm/contact/details/{contact_id}/`", base),
+		fmt.Sprintf("- Company:  `%s/crm/company/details/{company_id}/`", base),
+		fmt.Sprintf("- Order:    `%s/shop/orders/details/{order_id}/`", base),
+		fmt.Sprintf("- Payment:  `%s/shop/orders/payment/details/{payment_id}/`", base),
+		fmt.Sprintf("- Shipment: `%s/shop/orders/shipment/details/{shipment_id}/`", base),
+		fmt.Sprintf("- Calendar: `%s/calendar/?EVENT_ID={event_id}`", base),
+		fmt.Sprintf("- Chat:     `%s/online/?IM_DIALOG={dialog_id}` (e.g. `chat4932`)", base),
+		"",
+		"**Bitrix24 path-based URLs must end with a trailing `/`** (e.g. `/crm/deal/details/123/` — omit it and the portal may redirect or 404). Query-string URLs (`?EVENT_ID=`, `?IM_DIALOG=`) do not need a trailing slash. When a tool result already includes a full URL, use that URL verbatim — do NOT reconstruct it.",
+		"",
+	}
+}
+
 // buildMCPToolsSearchSection generates the MCP tools search instruction block.
 // Shown when mcp_tool_search is registered — may appear alongside the inline
 // section in hybrid mode (some tools inline, rest discoverable via search).

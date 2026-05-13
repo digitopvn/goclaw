@@ -99,6 +99,11 @@ type SystemPromptConfig struct {
 	Workspace     string
 	Channel       string                  // runtime channel instance name (e.g. "my-telegram-bot")
 	ChannelType   string                  // platform type (e.g. "zalo_personal", "telegram")
+	// BitrixPortalDomain — bitrix24 channel only. The portal domain (e.g.
+	// "tamgiac.bitrix24.com") looked up from the channel runtime/DB. Used by
+	// buildBitrix24EntityLinkSection to teach the LLM the correct domain for
+	// entity links (tasks, deals, contacts). Empty for non-bitrix24 channels.
+	BitrixPortalDomain string
 	ChatID        string                  // current reply target chat id (drives <current_reply_target>)
 	ChatTitle     string                  // group chat display name (shown in identity line)
 	PeerKind      string                  // "direct" or "group"
@@ -414,6 +419,11 @@ func BuildSystemPrompt(cfg SystemPromptConfig) string {
 		// nudges the LLM to re-fetch for record lookups.
 		if isFull && cfg.ChannelType == "bitrix24" {
 			lines = append(lines, buildCRMFreshnessSection()...)
+			// Entity link domain hint: LLM otherwise hallucinates
+			// "bitrix24.example.com" when asked to send a record URL.
+			if cfg.BitrixPortalDomain != "" {
+				lines = append(lines, buildBitrix24EntityLinkSection(cfg.BitrixPortalDomain)...)
+			}
 		}
 	}
 

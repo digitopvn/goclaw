@@ -429,9 +429,13 @@ func processNormalMessage(
 		Message:           msg.Content,
 		Media:             reqMedia,
 		ForwardMedia:      fwdMedia,
-		Channel:           msg.Channel,
-		ChannelType:       resolveChannelType(deps.ChannelMgr, msg.Channel),
-		ChatTitle:         msg.Metadata[tools.MetaChatTitle],
+		Channel:            msg.Channel,
+		ChannelType:        resolveChannelType(deps.ChannelMgr, msg.Channel),
+		// Forward Bitrix24 portal domain from channel metadata so the
+		// system prompt can teach the LLM the correct entity URL host.
+		// Empty for non-bitrix24 channels — section is skipped downstream.
+		BitrixPortalDomain: msg.Metadata["bitrix_portal"],
+		ChatTitle:          msg.Metadata[tools.MetaChatTitle],
 		ChatID:            msg.ChatID,
 		WorkspaceChatID:   msg.ChatID,
 		PeerKind:          peerKind,
