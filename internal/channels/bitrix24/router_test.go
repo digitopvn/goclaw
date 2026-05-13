@@ -195,6 +195,93 @@ func TestRouter_HandleInstall_Success(t *testing.T) {
 	}
 }
 
+// TestRouter_HandleInstall_CapturesPublicURL verifies the OAuth install path
+// derives the gateway URL from the request and persists it on the portal.
+// This is what removes the need for per-channel config.public_url.
+func TestRouter_HandleInstall_CapturesPublicURL(t *testing.T) {
+	fs := newFakeStore()
+	tid := uuid.New()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"access_token":"AT","refresh_token":"RT","expires_in":3600,
+			"domain":"portal.bitrix24.com","member_id":"mem1",
+			"application_token":"APP"
+		}`))
+	}))
+	defer srv.Close()
+
+	portal := newTestPortal(t, srv, fs, tid, "myportal", store.BitrixPortalState{})
+	r := newRouterForTest()
+	defer r.Stop()
+	r.RegisterPortal(portal)
+
+	form := url.Values{}
+	form.Set("code", "abc123")
+	form.Set("state", tid.String()+":myportal")
+	form.Set("domain", "portal.bitrix24.com")
+	req := httptest.NewRequest(http.MethodPost, "/bitrix24/install", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	// Simulate Cloudflare Tunnel forwarding the original public host + scheme.
+	req.Host = "internal-lb"
+	req.Header.Set("X-Forwarded-Host", "goclaw.tamgiac.com")
+	req.Header.Set("X-Forwarded-Proto", "https")
+
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if got := portal.PublicURL(); got != "https://goclaw.tamgiac.com" {
+		t.Fatalf("PublicURL = %q, want %q", got, "https://goclaw.tamgiac.com")
+	}
+}
+
+// TestRouter_HandleInstall_CaptureFailsSilently_OnPrivateHost ensures capture
+// doesn't abort install when the URL is private/loopback — admin still gets
+// a working portal, just no captured URL. Install must succeed.
+func TestRouter_HandleInstall_CaptureFailsSilently_OnPrivateHost(t *testing.T) {
+	fs := newFakeStore()
+	tid := uuid.New()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"access_token":"AT","refresh_token":"RT","expires_in":3600,
+			"domain":"portal.bitrix24.com","member_id":"mem1"
+		}`))
+	}))
+	defer srv.Close()
+
+	portal := newTestPortal(t, srv, fs, tid, "myportal", store.BitrixPortalState{})
+	r := newRouterForTest()
+	defer r.Stop()
+	r.RegisterPortal(portal)
+
+	form := url.Values{}
+	form.Set("code", "abc123")
+	form.Set("state", tid.String()+":myportal")
+	form.Set("domain", "portal.bitrix24.com")
+	req := httptest.NewRequest(http.MethodPost, "/bitrix24/install", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Host = "localhost:8080" // private, capture will skip
+
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (install succeeds even when capture skipped)", rec.Code)
+	}
+	if got := portal.PublicURL(); got != "" {
+		t.Errorf("PublicURL should be empty after private-host capture, got %q", got)
+	}
+	if !portal.Installed() {
+		t.Error("portal should still be marked installed")
+	}
+}
+
 func TestRouter_HandleInstall_MissingCode(t *testing.T) {
 	r := newRouterForTest()
 	defer r.Stop()

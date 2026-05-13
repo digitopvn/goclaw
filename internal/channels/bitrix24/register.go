@@ -135,14 +135,31 @@ func (c *Channel) registerParams(ctx context.Context) map[string]any {
 }
 
 // eventHandlerURL returns the absolute URL Bitrix24 should call for events,
-// or an empty string when PublicURL isn't configured. The empty case is
-// caller-visible so registerBot can fail with a Config error instead of
-// burning an API call that Bitrix is guaranteed to reject ("URL invalid").
+// or an empty string when no source has a public URL. Priority:
+//
+//  1. portal.PublicURL() — captured by the install handler from the request
+//     Bitrix24 itself sent; self-verifying because the URL has been proven
+//     reachable. This is the preferred source.
+//  2. c.cfg.PublicURL — legacy per-instance config (deprecated). Used only
+//     when (1) is empty, e.g. portal was installed on a goclaw release that
+//     predated the capture feature. A deprecation warning is logged so an
+//     operator can plan a reinstall.
+//
+// The empty case is caller-visible so registerBot can fail with a Config
+// error instead of burning an API call that Bitrix is guaranteed to reject
+// ("URL invalid").
 func (c *Channel) eventHandlerURL() string {
+	if c.portal != nil {
+		if v := strings.TrimRight(strings.TrimSpace(c.portal.PublicURL()), "/"); v != "" {
+			return v + eventsPath
+		}
+	}
 	base := strings.TrimRight(strings.TrimSpace(c.cfg.PublicURL), "/")
 	if base == "" {
 		return ""
 	}
+	slog.Warn("bitrix24: using legacy config.public_url — reinstall the portal to capture the URL automatically",
+		"portal", c.cfg.Portal, "bot_code", c.cfg.BotCode)
 	return base + eventsPath
 }
 

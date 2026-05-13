@@ -257,6 +257,12 @@ func (r *Router) handleInstall(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	// Best-effort: capture the gateway public URL Bitrix24 just used to reach us.
+	// Channel.eventHandlerURL() will read this when registering imbot event
+	// callbacks. Failure (private host, missing headers) is non-fatal — install
+	// succeeded; eventHandlerURL falls back to legacy config.public_url.
+	capturePublicURL(ctx, portal, req, nil)
+
 	// Refresh domain index in case the first Exchange arrived before the
 	// initial RegisterPortal was able to read a stored domain.
 	r.mu.Lock()
@@ -323,6 +329,10 @@ func (r *Router) handleInstallLocalApp(w http.ResponseWriter, req *http.Request)
 		http.Error(w, "install failed", http.StatusBadGateway)
 		return
 	}
+
+	// Best-effort: capture the gateway public URL Bitrix24 just used to reach us.
+	// See handleInstall (OAuth path) for rationale.
+	capturePublicURL(ctx, portal, req, nil)
 
 	// Refresh domain index in case the first install landed before RegisterPortal
 	// could read a stored domain (mirrors OAuth path above).

@@ -45,6 +45,12 @@ type BitrixPortalState struct {
 	LastRefreshAt    time.Time         `json:"last_refresh_at,omitempty"`
 	LastRefreshError string            `json:"last_refresh_error,omitempty"`
 	ConsecutiveFail  int               `json:"consecutive_fail,omitempty"`
+
+	// PublicURL is the gateway's externally reachable base URL, captured from
+	// the request hitting /bitrix24/install. Channels use this when registering
+	// imbot event handler URLs with Bitrix24. Replaces the deprecated per-channel
+	// public_url config. See plans/260513-1648-bitrix24-portal-self-service-ux.
+	PublicURL string `json:"public_url,omitempty"`
 }
 
 // BitrixPortalStore manages bitrix_portals rows.

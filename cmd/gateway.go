@@ -484,6 +484,18 @@ func runGateway() {
 			slog.Error("failed to load channel instances from DB", "error", err)
 		}
 
+		// Bitrix24 portal management RPC (self-service onboarding).
+		// Registers bitrix.portals.list/create/get_install_url/delete methods
+		// on the WS router; install URL is built from the gateway's observed
+		// public URL via Server.PublicURLSnapshot().
+		if pgStores.BitrixPortals != nil {
+			methods.NewBitrixPortalsMethods(
+				pgStores.BitrixPortals,
+				pgStores.ChannelInstances,
+				server.PublicURLSnapshot().Get,
+			).Register(server.Router())
+		}
+
 		// Warm the shared Bitrix24 router with every portal row so inbound
 		// webhooks land on the right *Portal even before a channel instance
 		// is loaded for that portal. Idempotent; no-op on sqlite-lite.

@@ -549,5 +549,108 @@ func TestPortal_Stop_Idempotent(t *testing.T) {
 	p.Stop()
 }
 
+// ---------------------------------------------------------------------------
+// UpdatePublicURL / PublicURL — install-captured gateway URL
+// ---------------------------------------------------------------------------
+
+func TestPortal_UpdatePublicURL_FirstSet_PersistsState(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer srv.Close()
+	fs := newFakeStore()
+	tid := store.GenNewID()
+	p := newTestPortal(t, srv, fs, tid, "p", store.BitrixPortalState{})
+
+	if got := p.PublicURL(); got != "" {
+		t.Fatalf("expected empty initial PublicURL, got %q", got)
+	}
+
+	if err := p.UpdatePublicURL(context.Background(), "https://goclaw.tamgiac.com"); err != nil {
+		t.Fatalf("UpdatePublicURL: %v", err)
+	}
+	if got := p.PublicURL(); got != "https://goclaw.tamgiac.com" {
+		t.Fatalf("PublicURL = %q, want stored value", got)
+	}
+	if atomic.LoadInt32(&fs.stateUpdates) != 1 {
+		t.Fatalf("expected 1 state write, got %d", fs.stateUpdates)
+	}
+
+	// Reload from store to verify the write made it past in-memory state.
+	p2, err := NewPortal(context.Background(), tid, "p", fs, "")
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if got := p2.PublicURL(); got != "https://goclaw.tamgiac.com" {
+		t.Fatalf("reloaded PublicURL = %q", got)
+	}
+}
+
+func TestPortal_UpdatePublicURL_Idempotent_NoOpWrite(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer srv.Close()
+	fs := newFakeStore()
+	tid := store.GenNewID()
+	p := newTestPortal(t, srv, fs, tid, "p", store.BitrixPortalState{
+		PublicURL: "https://goclaw.tamgiac.com",
+	})
+
+	// Same value → no write, no error.
+	if err := p.UpdatePublicURL(context.Background(), "https://goclaw.tamgiac.com"); err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if writes := atomic.LoadInt32(&fs.stateUpdates); writes != 0 {
+		t.Fatalf("expected 0 state writes on no-op, got %d", writes)
+	}
+}
+
+func TestPortal_UpdatePublicURL_RejectsEmpty(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer srv.Close()
+	fs := newFakeStore()
+	tid := store.GenNewID()
+	p := newTestPortal(t, srv, fs, tid, "p", store.BitrixPortalState{})
+
+	if err := p.UpdatePublicURL(context.Background(), ""); err == nil {
+		t.Fatal("expected error on empty URL")
+	}
+}
+
+func TestPortal_UpdatePublicURL_Changed_OverwritesAndPersists(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer srv.Close()
+	fs := newFakeStore()
+	tid := store.GenNewID()
+	p := newTestPortal(t, srv, fs, tid, "p", store.BitrixPortalState{
+		PublicURL: "https://old.example.com",
+	})
+
+	if err := p.UpdatePublicURL(context.Background(), "https://new.example.com"); err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if got := p.PublicURL(); got != "https://new.example.com" {
+		t.Fatalf("PublicURL = %q", got)
+	}
+	if atomic.LoadInt32(&fs.stateUpdates) != 1 {
+		t.Fatalf("expected 1 state write on URL change, got %d", fs.stateUpdates)
+	}
+}
+
+func TestPortal_UpdatePublicURL_StoreFailurePropagates(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer srv.Close()
+	fs := newFakeStore()
+	fs.updateStateErr = errors.New("boom")
+	tid := store.GenNewID()
+	p := newTestPortal(t, srv, fs, tid, "p", store.BitrixPortalState{})
+
+	if err := p.UpdatePublicURL(context.Background(), "https://goclaw.tamgiac.com"); err == nil {
+		t.Fatal("expected store error to propagate")
+	}
+	// In-memory state still updated (acceptable — next write retry will sync).
+	// We document this in the method docstring; assert behaviour.
+	if got := p.PublicURL(); got != "https://goclaw.tamgiac.com" {
+		t.Fatalf("expected in-memory update despite persist failure, got %q", got)
+	}
+}
+
 // _ silence any unused warnings if reorganized later.
 var _ = url.Parse

@@ -55,6 +55,9 @@ type Portal struct {
 
 	sf singleflight.Group
 
+	onRefreshMu sync.RWMutex
+	onRefresh   func(context.Context, *TokenResponse)
+
 	// refresh loop lifecycle
 	stopOnce sync.Once
 	stopCh   chan struct{}
@@ -156,6 +159,50 @@ func (p *Portal) AppToken() string {
 	return p.state.AppToken
 }
 
+// RotateAppTokenIfTrusted updates the stored app_token when Bitrix24 rotates it
+// (e.g. reinstall). We only accept rotation when member_id matches the stored
+// MemberID; this preserves the same trust boundary as BootstrapAppToken.
+//
+// Returns (rotated=true) only when a write happened.
+func (p *Portal) RotateAppTokenIfTrusted(ctx context.Context, memberID, newToken string) (bool, error) {
+	if newToken == "" {
+		return false, errors.New("bitrix24 rotate app_token: empty new token")
+	}
+	p.mu.Lock()
+	storedMember := p.state.MemberID
+	old := p.state.AppToken
+	if storedMember == "" {
+		p.mu.Unlock()
+		return false, errors.New("bitrix24 rotate app_token: stored member_id empty — reinstall required")
+	}
+	if memberID == "" {
+		p.mu.Unlock()
+		return false, errors.New("bitrix24 rotate app_token: event member_id empty, stored non-empty")
+	}
+	if storedMember != memberID {
+		p.mu.Unlock()
+		return false, fmt.Errorf("bitrix24 rotate app_token: member_id mismatch: stored=%q event=%q", storedMember, memberID)
+	}
+	// No-op if already equal.
+	if old == newToken {
+		p.mu.Unlock()
+		return false, nil
+	}
+	p.state.AppToken = newToken
+	stateCopy := p.state
+	p.mu.Unlock()
+
+	// Persist even if request ctx is canceled.
+	if err := p.writeState(context.WithoutCancel(ctx), stateCopy); err != nil {
+		return false, err
+	}
+	slog.Info("bitrix24 portal: app_token rotated",
+		"tenant", p.tenantID, "portal", p.name, "domain", p.domain,
+		"old_len", len(old), "new_len", len(newToken),
+	)
+	return true, nil
+}
+
 // BootstrapAppToken persists auth.application_token on the first authenticated
 // event when the install POST itself did not carry it. The Bitrix24 Local App
 // install form sends AUTH_ID / REFRESH_ID / member_id / DOMAIN but OMITS
@@ -209,6 +256,55 @@ func (p *Portal) BootstrapAppToken(ctx context.Context, memberID, appToken strin
 	// Detach context: bootstrap must succeed even if the request context is
 	// about to be cancelled — we already decided to trust the event.
 	return p.writeState(context.WithoutCancel(ctx), stateCopy)
+}
+
+// UpdatePublicURL persists the gateway's externally reachable base URL into
+// portal state. Called from the install handler with the URL Bitrix24 used to
+// reach us — guaranteed reachable because the request actually arrived. Used
+// later by Channel.eventHandlerURL() when registering imbot event callbacks.
+//
+// No-op (and no write) when the value is unchanged. When the value changes
+// from a previously stored URL, we log a warning: Bitrix-side event handlers
+// are still pinned to the old URL until someone re-runs imbot.register
+// (e.g. via BITRIX24_FORCE_REREGISTER=1 on the next channel start). We do NOT
+// trigger that automatically here — re-register would race with the install
+// request still being served.
+func (p *Portal) UpdatePublicURL(ctx context.Context, url string) error {
+	if url == "" {
+		return errors.New("bitrix24 portal: empty public_url")
+	}
+	p.mu.Lock()
+	if p.state.PublicURL == url {
+		p.mu.Unlock()
+		return nil
+	}
+	old := p.state.PublicURL
+	p.state.PublicURL = url
+	stateCopy := p.state
+	p.mu.Unlock()
+
+	// Detach context: once we've decided to record the URL, a canceled install
+	// request must not block the write — the URL is correct, persist it.
+	if err := p.writeState(context.WithoutCancel(ctx), stateCopy); err != nil {
+		return err
+	}
+	if old != "" {
+		slog.Warn("bitrix24 portal: public_url changed — Bitrix-side event handlers still point at the old URL until re-register",
+			"tenant", p.tenantID, "portal", p.name, "old", old, "new", url)
+	} else {
+		slog.Info("bitrix24 portal: public_url captured",
+			"tenant", p.tenantID, "portal", p.name, "url", url)
+	}
+	return nil
+}
+
+// PublicURL returns the gateway URL captured at install. Empty string when no
+// install has run yet (or row was created on a goclaw release predating the
+// capture feature — see plans/260513-1648-bitrix24-portal-self-service-ux).
+func (p *Portal) PublicURL() string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.state.PublicURL
 }
 
 // LookupRegisteredBot returns the bot id previously registered under a code.
@@ -367,12 +463,31 @@ func (p *Portal) refreshLocked(ctx context.Context) error {
 	}
 
 	p.applyTokenResponse(tr)
+	p.onTokenRefreshed(context.WithoutCancel(ctx), tr)
 	// Decouple the persist from the caller's context. The refresh itself uses
 	// ctx (so a shutdown can abort the HTTP round-trip), but once Bitrix has
 	// rotated the refresh_token we MUST get it to the store — if we drop it
 	// because an HTTP handler canceled we're stuck with an expired access
 	// token and no way to recover without a reinstall.
 	return p.persistState(context.WithoutCancel(ctx))
+}
+
+// SetOnTokenRefresh registers a best-effort callback invoked after every
+// successful token refresh (including startup exchange/refresh calls).
+func (p *Portal) SetOnTokenRefresh(cb func(context.Context, *TokenResponse)) {
+	p.onRefreshMu.Lock()
+	defer p.onRefreshMu.Unlock()
+	p.onRefresh = cb
+}
+
+func (p *Portal) onTokenRefreshed(ctx context.Context, tr *TokenResponse) {
+	p.onRefreshMu.RLock()
+	cb := p.onRefresh
+	p.onRefreshMu.RUnlock()
+	if cb == nil || tr == nil {
+		return
+	}
+	cb(ctx, tr)
 }
 
 // defaultTokenTTL is the fallback window when a Bitrix24 token response

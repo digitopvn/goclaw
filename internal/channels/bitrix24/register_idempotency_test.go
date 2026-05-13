@@ -361,6 +361,55 @@ func TestRegisterBot_NoPublicURL_FailsFast(t *testing.T) {
 	}
 }
 
+// ---------- eventHandlerURL preference: portal > legacy config ----------
+
+// TestEventHandlerURL_PrefersPortalCapture verifies that when the portal has
+// captured a PublicURL (Phase 01 install-handler capture), eventHandlerURL
+// uses it and ignores the legacy per-channel config value.
+func TestEventHandlerURL_PrefersPortalCapture(t *testing.T) {
+	srv := httptest.NewServer(restHandler{})
+	defer srv.Close()
+
+	ch := newRegisterTestChannel(t, srv, store.BitrixPortalState{
+		RefreshToken: "RT", AccessToken: "AT",
+		ExpiresAt: time.Now().Add(time.Hour),
+		PublicURL: "https://portal-captured.example.com",
+	})
+	defer resetWebhookRouterForTest()
+	// Reload portal from store so the freshly-seeded state.PublicURL takes effect.
+	// (newRegisterTestChannel sets bc.portal before this test can swap the
+	// state — but newPortal already loaded the seeded state on construction.)
+
+	// Even though config has the legacy URL, the portal-captured value wins.
+	got := ch.eventHandlerURL()
+	want := "https://portal-captured.example.com" + eventsPath
+	if got != want {
+		t.Errorf("eventHandlerURL = %q, want %q", got, want)
+	}
+}
+
+// TestEventHandlerURL_FallsBackToLegacyConfig verifies that when the portal
+// has NO captured URL (e.g. installed on a goclaw release predating Phase 01),
+// eventHandlerURL falls back to config.public_url for backward compatibility.
+func TestEventHandlerURL_FallsBackToLegacyConfig(t *testing.T) {
+	srv := httptest.NewServer(restHandler{})
+	defer srv.Close()
+
+	// Portal state without PublicURL → forces fallback path.
+	ch := newRegisterTestChannel(t, srv, store.BitrixPortalState{
+		RefreshToken: "RT", AccessToken: "AT",
+		ExpiresAt: time.Now().Add(time.Hour),
+	})
+	defer resetWebhookRouterForTest()
+
+	got := ch.eventHandlerURL()
+	// newRegisterTestChannel seeds config with public_url=https://gw.test
+	want := "https://gw.test" + eventsPath
+	if got != want {
+		t.Errorf("eventHandlerURL fallback = %q, want %q", got, want)
+	}
+}
+
 // ---------- Sanity: ensure our uuid/tenant helper types compile ----------
 // (Compile-time reference so unused imports from the fake-store pattern
 // don't trip `go vet`; no runtime check needed.)

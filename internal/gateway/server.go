@@ -69,6 +69,12 @@ type Server struct {
 
 	httpServer *http.Server
 	mux        *http.ServeMux
+
+	// publicURLSnapshot remembers the gateway's externally reachable base URL
+	// learned from inbound HTTP requests. Reset to a fresh snapshot per Server
+	// so test servers don't share state. Read by RPC methods that need to
+	// advertise URLs back to external systems (e.g. Bitrix24 install link).
+	publicURLSnapshot *PublicURLSnapshot
 }
 
 // SetPostTurnProcessor sets the post-turn processor for team task dispatch in HTTP API handlers.
@@ -79,12 +85,13 @@ func (s *Server) SetPostTurnProcessor(pt tools.PostTurnProcessor) {
 // NewServer creates a new gateway server.
 func NewServer(cfg *config.Config, eventPub bus.EventPublisher, agents *agent.Router, sess store.SessionStore, toolsReg ...*tools.Registry) *Server {
 	s := &Server{
-		cfg:       cfg,
-		eventPub:  eventPub,
-		agents:    agents,
-		sessions:  sess,
-		clients:   make(map[string]*Client),
-		startedAt: time.Now(),
+		cfg:               cfg,
+		eventPub:          eventPub,
+		agents:            agents,
+		sessions:          sess,
+		clients:           make(map[string]*Client),
+		startedAt:         time.Now(),
+		publicURLSnapshot: NewPublicURLSnapshot(),
 	}
 
 	s.upgrader = websocket.Upgrader{
@@ -109,6 +116,10 @@ func NewServer(cfg *config.Config, eventPub bus.EventPublisher, agents *agent.Ro
 
 // RateLimiter returns the server's rate limiter for use by method handlers.
 func (s *Server) RateLimiter() *RateLimiter { return s.rateLimiter }
+
+// PublicURLSnapshot returns the snapshot of the gateway's externally reachable
+// base URL. Updated by the snapshot middleware on every inbound request.
+func (s *Server) PublicURLSnapshot() *PublicURLSnapshot { return s.publicURLSnapshot }
 
 // checkOrigin validates WebSocket connection origin against the allowed origins whitelist.
 // If no origins are configured, all origins are allowed (backward compatibility / dev mode).
@@ -332,6 +343,13 @@ func (s *Server) Start(ctx context.Context) error {
 	if os.Getenv("GOCLAW_DESKTOP") == "1" {
 		handler = desktopCORS(mux)
 	}
+	// NOTE: The public-URL snapshot is intentionally NOT updated by a global
+	// middleware. An unauthenticated probe with a forged Host header could
+	// otherwise poison the URL we hand back to clients (which then ends up
+	// in OAuth callbacks and would leak tokens to an attacker-controlled
+	// host). Instead, the snapshot is updated inside handleConnect AFTER
+	// token authentication succeeds (see internal/gateway/router.go), and
+	// from /bitrix24/install (already gated by valid OAuth state).
 
 	addr := fmt.Sprintf("%s:%d", s.cfg.Gateway.Host, s.cfg.Gateway.Port)
 	s.httpServer = &http.Server{
@@ -363,6 +381,11 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	client := NewClient(conn, s, clientIP(r))
+	// Capture the public URL from the HTTP upgrade request. We DON'T snapshot
+	// it server-wide yet — that happens only after the client authenticates
+	// in handleConnect. This prevents an unauthenticated probe with a forged
+	// Host header from poisoning the gateway-wide public URL.
+	client.setUpgradeURL(derivePublicURLFromRequest(r))
 	s.registerClient(client)
 
 	defer func() {
