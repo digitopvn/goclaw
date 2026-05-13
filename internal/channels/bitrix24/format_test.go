@@ -5,6 +5,49 @@ import (
 	"testing"
 )
 
+func TestBxConvertUserMentionsToReadable(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"empty", "", ""},
+		{"no_bbcode", "plain text", "plain text"},
+		{
+			"single_user_mention",
+			"[USER=62]Đặng Văn Tình[/USER] hello",
+			"@Đặng Văn Tình (ID:62) hello",
+		},
+		{
+			"two_user_mentions",
+			"[USER=982]Ngân Nguyệt - Hàn Lập[/USER] [USER=62]Đặng Văn Tình[/USER] Đây này em",
+			"@Ngân Nguyệt - Hàn Lập (ID:982) @Đặng Văn Tình (ID:62) Đây này em",
+		},
+		{
+			"bot_variant",
+			"[BOT=200]Helper Bot[/BOT] please",
+			"@Helper Bot (ID:200) please",
+		},
+		{
+			"empty_display_name_falls_back",
+			"[USER=62][/USER] hi",
+			"@user-62 hi",
+		},
+		{
+			"mismatched_close_tag_tolerated",
+			"[USER=62]X[/BOT] ok", // some Bitrix clients mix closers
+			"@X (ID:62) ok",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := bxConvertUserMentionsToReadable(tc.in); got != tc.want {
+				t.Errorf("in=%q\n got=%q\nwant=%q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestMarkdownToBitrixBBCode_Empty(t *testing.T) {
 	if got := markdownToBitrixBBCode(""); got != "" {
 		t.Errorf("empty input → %q, want empty", got)
@@ -13,9 +56,9 @@ func TestMarkdownToBitrixBBCode_Empty(t *testing.T) {
 
 func TestMarkdownToBitrixBBCode_Bold(t *testing.T) {
 	cases := map[string]string{
-		"hello **world** foo":  "hello [b]world[/b] foo",
-		"__bold__ text":        "[b]bold[/b] text",
-		"**a** and **b**":      "[b]a[/b] and [b]b[/b]",
+		"hello **world** foo":           "hello [b]world[/b] foo",
+		"__bold__ text":                 "[b]bold[/b] text",
+		"**a** and **b**":               "[b]a[/b] and [b]b[/b]",
 		"no_bold_here underscores stay": "no_bold_here underscores stay",
 	}
 	for in, want := range cases {
@@ -27,10 +70,10 @@ func TestMarkdownToBitrixBBCode_Bold(t *testing.T) {
 
 func TestMarkdownToBitrixBBCode_Italic(t *testing.T) {
 	cases := map[string]string{
-		"this is *italic* text":    "this is [i]italic[/i] text",
-		"this is _italic_ text":    "this is [i]italic[/i] text",
-		"snake_case_var stays":     "snake_case_var stays",
-		"word*star in middle":      "word*star in middle", // no trailing marker → no match
+		"this is *italic* text": "this is [i]italic[/i] text",
+		"this is _italic_ text": "this is [i]italic[/i] text",
+		"snake_case_var stays":  "snake_case_var stays",
+		"word*star in middle":   "word*star in middle", // no trailing marker → no match
 	}
 	for in, want := range cases {
 		if got := markdownToBitrixBBCode(in); got != want {
@@ -77,7 +120,7 @@ func TestMarkdownToBitrixBBCode_Headers(t *testing.T) {
 
 func TestMarkdownToBitrixBBCode_InlineCode(t *testing.T) {
 	in := "Run `go test` in repo"
-	want := "Run [code]go test[/code] in repo"
+	want := "Run [i]go test[/i] in repo"
 	if got := markdownToBitrixBBCode(in); got != want {
 		t.Errorf("got=%q want=%q", got, want)
 	}
@@ -86,7 +129,7 @@ func TestMarkdownToBitrixBBCode_InlineCode(t *testing.T) {
 func TestMarkdownToBitrixBBCode_InlineCodeProtectsMarkdown(t *testing.T) {
 	// ** inside backticks is literal, must survive conversion.
 	in := "Use `**bold**` syntax"
-	want := "Use [code]**bold**[/code] syntax"
+	want := "Use [i]**bold**[/i] syntax"
 	if got := markdownToBitrixBBCode(in); got != want {
 		t.Errorf("got=%q want=%q", got, want)
 	}
@@ -153,11 +196,74 @@ func TestMarkdownToBitrixBBCode_HorizontalRule(t *testing.T) {
 func TestMarkdownToBitrixBBCode_Table(t *testing.T) {
 	in := "| A | B |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |"
 	got := markdownToBitrixBBCode(in)
-	if !strings.Contains(got, "[code]") || !strings.Contains(got, "[/code]") {
-		t.Errorf("table not wrapped in [code]: %q", got)
+	if strings.Contains(got, "[table]") {
+		t.Errorf("Bitrix chat does not render [table]; got: %q", got)
 	}
-	if !strings.Contains(got, "| A | B |") {
-		t.Errorf("table header missing from output: %q", got)
+	if !strings.Contains(got, "• [b]A[/b]: 1") || !strings.Contains(got, "— [b]B[/b]: 2") {
+		t.Errorf("expected labeled bullet rows: %q", got)
+	}
+	if !strings.Contains(got, "• [b]A[/b]: 3") {
+		t.Errorf("second body row missing: %q", got)
+	}
+}
+
+func TestMarkdownToBitrixBBCode_TableBorderless(t *testing.T) {
+	in := "Nhóm | Helper\n------|--------\ncrm/write | `createDeal`"
+	got := markdownToBitrixBBCode(in)
+	if strings.Contains(got, "[table]") {
+		t.Errorf("borderless table must not use [table]: %q", got)
+	}
+	if !strings.Contains(got, "• [b]Nhóm[/b]: crm/write") || !strings.Contains(got, "— [b]Helper[/b]: [i]createDeal[/i]") {
+		t.Errorf("expected labeled bullets: %q", got)
+	}
+}
+
+func TestMarkdownToBitrixBBCode_TableOutsideCodeOnly(t *testing.T) {
+	in := "```md\n| A | B |\n|---|---|\n| 1 | 2 |\n```\n\n| H1 | H2 |\n|----|----|\n| x  | y  |"
+	got := markdownToBitrixBBCode(in)
+
+	if !strings.Contains(got, "[code]\n| A | B |\n|---|---|\n| 1 | 2 |\n[/code]") {
+		t.Errorf("fenced table should stay in [code] literal block: %q", got)
+	}
+	if strings.Contains(got, "[table]") {
+		t.Errorf("normal markdown table should not use [table] BBCode: %q", got)
+	}
+	if !strings.Contains(got, "• [b]H1[/b]: x") {
+		t.Errorf("expected labeled list for outer table: %q", got)
+	}
+}
+
+func TestMarkdownToBitrixBBCode_TableFallbackTextGrid(t *testing.T) {
+	// Separator row has 3 columns but header has 2. Extractor still matches,
+	// parser rejects it, renderer should fallback to plain text grid.
+	in := "| A | B |\n|---|---|---|\n| 1 | 2 |"
+	got := markdownToBitrixBBCode(in)
+	if strings.Contains(got, "[table]") || strings.Contains(got, "[code]") {
+		t.Errorf("fallback should not use table/code tags: %q", got)
+	}
+	if !strings.Contains(got, "A | B") || !strings.Contains(got, "1 | 2") {
+		t.Errorf("fallback grid content missing: %q", got)
+	}
+}
+
+func TestMarkdownToBitrixBBCode_TableWithInlineMarkdown(t *testing.T) {
+	in := "| Col |\n|-----|\n| **bold** [link](https://example.com) `x` |\n| _i_ ~~s~~ |"
+	got := markdownToBitrixBBCode(in)
+	mustContain := []string{
+		"• [b]Col[/b]:",
+		"[b]bold[/b]",
+		"[url=https://example.com]link[/url]",
+		"[i]x[/i]",
+		"[i]i[/i]",
+		"[s]s[/s]",
+	}
+	if strings.Contains(got, "[table]") {
+		t.Errorf("must not emit [table]: %q", got)
+	}
+	for _, m := range mustContain {
+		if !strings.Contains(got, m) {
+			t.Errorf("missing %q in: %q", m, got)
+		}
 	}
 }
 
@@ -166,7 +272,7 @@ func TestMarkdownToBitrixBBCode_HTMLFromLLM(t *testing.T) {
 	// through the Markdown pipeline into BBCode, not leak as literal tags.
 	in := "Hello <b>world</b> and <i>italic</i> with <code>inline</code>."
 	got := markdownToBitrixBBCode(in)
-	want := "Hello [b]world[/b] and [i]italic[/i] with [code]inline[/code]."
+	want := "Hello [b]world[/b] and [i]italic[/i] with [i]inline[/i]."
 	if got != want {
 		t.Errorf("got=%q want=%q", got, want)
 	}
@@ -230,7 +336,7 @@ Xem thêm ở [trang tài liệu](https://docs.example.vn).
 		"[url=https://docs.example.vn]trang tài liệu[/url]",
 		"[code]\ndef hello():\n    print(\"hi\")\n[/code]",
 		"[quote]Lưu ý: áp dụng cho v2.[/quote]",
-		"[code]code[/code]",
+		"[i]code[/i]",
 	}
 	for _, m := range mustContain {
 		if !strings.Contains(got, m) {
@@ -255,7 +361,7 @@ func TestMarkdownToBitrixBBCode_ItalicAdjacentPairs(t *testing.T) {
 	}
 }
 
-// Regression: single-line fenced ``code`` used to lose `code` as a phantom
+// Regression: single-line fenced “code“ used to lose `code` as a phantom
 // language hint and render [code]\n\n[/code]. Now the prefix group only
 // consumes a lang hint when followed by a newline.
 func TestMarkdownToBitrixBBCode_FencedSingleLine(t *testing.T) {
@@ -263,6 +369,45 @@ func TestMarkdownToBitrixBBCode_FencedSingleLine(t *testing.T) {
 	got := markdownToBitrixBBCode(in)
 	if !strings.Contains(got, "[code]\nliteral\n[/code]") {
 		t.Errorf("single-line fenced lost content: %q", got)
+	}
+}
+
+// Inline “ `…` “ → [i] (not [code]); fenced ``` → [code] — matches Bitrix UX (prose vs snippet).
+func TestMarkdownToBitrixBBCode_FencedVsInlineIdentifiers(t *testing.T) {
+	in := "Tham số `ALLOW_CHANGE_DEADLINE` và `TASK_CONTROL` dùng giá trị `\"Y\"`.\n\n```js\nawait codemode.request({\n  ALLOW_CHANGE_DEADLINE: 'Y'\n});\n```"
+	got := markdownToBitrixBBCode(in)
+	if !strings.Contains(got, "[i]ALLOW_CHANGE_DEADLINE[/i]") || !strings.Contains(got, "[i]TASK_CONTROL[/i]") {
+		t.Errorf("inline backticks should become [i], got: %q", got)
+	}
+	if strings.Contains(got, "[code]ALLOW_CHANGE") {
+		t.Errorf("inline must not use [code] wrapper: %q", got)
+	}
+	if !strings.Contains(got, "[code]\nawait codemode.request({") {
+		t.Errorf("fenced block should stay [code]: %q", got)
+	}
+}
+
+func TestMarkdownToBitrixBBCode_LLMOneLineCodeBBCodeToItalic(t *testing.T) {
+	in := "helper [code]createSpaItem[/code] ok"
+	want := "helper [i]createSpaItem[/i] ok"
+	if got := markdownToBitrixBBCode(in); got != want {
+		t.Errorf("got=%q want=%q", got, want)
+	}
+}
+
+func TestMarkdownToBitrixBBCode_LLMBlockCodeBBCodePreserved(t *testing.T) {
+	in := "[code]\n{\n  \"itemId\": 5723\n}\n[/code]"
+	got := markdownToBitrixBBCode(in)
+	if !strings.Contains(got, "[code]\n{\n") || strings.Contains(got, "[i]{\n") {
+		t.Errorf("block [code] must be kept, got=%q", got)
+	}
+}
+
+func TestMarkdownToBitrixBBCode_LLMSameLineOpenMultilineInner(t *testing.T) {
+	in := "[code]line1\nline2[/code]"
+	got := markdownToBitrixBBCode(in)
+	if !strings.Contains(got, "[code]line1") || strings.Contains(got, "[i]line1") {
+		t.Errorf("multiline inner must stay [code], got=%q", got)
 	}
 }
 

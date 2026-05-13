@@ -107,6 +107,15 @@ func (c *Channel) handleMessage(ctx context.Context, evt *Event) {
 
 	isGroup := isGroupMessageType(evt.Params.MessageType)
 	text := evt.Params.Message
+	slog.Info("bitrix24 message: handle entry",
+		"from_user_id", evt.Params.FromUserID,
+		"dialog_id", evt.Params.DialogID,
+		"message_type", evt.Params.MessageType,
+		"is_group", isGroup,
+		"require_mention", c.RequireMention(),
+		"message_id", evt.Params.MessageID,
+		"mentioned_list_n", len(evt.Params.MentionedList),
+	)
 	if isGroup {
 		// Authority-ordered fallback: structured MENTIONED_LIST → raw
 		// MESSAGE_ORIGINAL → stripped MESSAGE. In group chats Bitrix24 strips
@@ -115,9 +124,29 @@ func (c *Channel) handleMessage(ctx context.Context, evt *Event) {
 		// plans/bitrix24-mcp-refactor/reports/retrospective.md §2 for context.
 		mentioned := c.isMentionedParams(&evt.Params)
 		if c.RequireMention() && !mentioned {
+			slog.Info("bitrix24 message: dropped missing mention",
+				"from_user_id", evt.Params.FromUserID,
+				"dialog_id", evt.Params.DialogID,
+				"message_type", evt.Params.MessageType,
+				"message_id", evt.Params.MessageID,
+			)
 			return
 		}
+		// Prefer MESSAGE_ORIGINAL (raw BBCode) over MESSAGE for groups: Bitrix24
+		// strips ALL `[USER=<id>]…[/USER]` mentions — including mentions of OTHER
+		// users — from MESSAGE before sending the webhook. Without this, a
+		// message like "[USER=982]Alice[/USER] [USER=62]Bob[/USER] help us"
+		// reaches the agent as just "help us", losing the addressed-user context.
+		//
+		// Pipeline: stripMention removes THIS bot's own tag → convert remaining
+		// user/bot mentions to "@Name (ID:<id>)" so the LLM sees who else was
+		// addressed without parsing BBCode. Falls back to MESSAGE on legacy
+		// portals that don't ship MESSAGE_ORIGINAL.
+		if evt.Params.MessageOriginal != "" {
+			text = evt.Params.MessageOriginal
+		}
 		text = c.stripMention(text)
+		text = bxConvertUserMentionsToReadable(text)
 	}
 	text = strings.TrimSpace(text)
 	if text == "" && len(evt.Params.Files) == 0 {
@@ -229,6 +258,12 @@ func (c *Channel) handleMessage(ctx context.Context, evt *Event) {
 	// Phase 06 will populate media paths after downloading from disk.getExternalLink;
 	// Phase 03 passes an empty slice so text-only flow is correct end-to-end.
 	var media []string
+	slog.Info("bitrix24 message: publish to bus",
+		"sender_id", senderID,
+		"chat_id", chatID,
+		"peer_kind", peerKind,
+		"message_id", evt.Params.MessageID,
+	)
 	c.HandleMessage(senderID, chatID, text, media, meta, peerKind)
 }
 

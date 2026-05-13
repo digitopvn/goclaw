@@ -15,21 +15,89 @@ import (
 //
 // Supported Bitrix24 BBCode tags (confirmed against imbot messages):
 //   [b]…[/b]            bold
-//   [i]…[/i]            italic
+//   [i]…[/i]            italic + inline tokens (markdown * / `…` / <code>, and LLM one-line [code]…[/code] in prose)
 //   [u]…[/u]            underline
 //   [s]…[/s]            strikethrough
-//   [code]…[/code]      inline OR block monospace (Bitrix decides by \n presence)
+//   [code]…[/code]      block code only (markdown ``` fences, or LLM [code] with newline after tag / multiline body)
 //   [url=link]text[/url] named hyperlink
 //   [url]link[/url]     bare hyperlink
 //   [quote]…[/quote]    quote block
 //
-// NOT supported natively: headers, tables, ordered/unordered lists. These are
-// flattened sensibly (headers → [b], lists → • bullets, tables → [code] block).
+// NOT supported natively by Bitrix as Markdown: headers, tables, lists. These
+// are adapted (headers → [b], lists → • bullets, pipe tables → labeled bullet
+// blocks — Bitrix chat does not render [table]/[tr]/[td] BBCode).
+//
+// Code policy: ``` → [code]…[/code]; one-line [code]x[/code] in text → [i]x[/i] (see bxNormalizeLLMInlineCodeBBCodeSpans).
 //
 // Deliberate non-goals:
 //   - [USER=id] mentions: LLM output never carries stable numeric IDs.
 //   - [DISK=id] attachments: media goes through Phase 06, not text formatting.
 //   - Colors / fonts / sizes: over-styling distracts from bot replies.
+
+// bxLLMCodeSpanBBCodeRE matches LLM-emitted [code]…[/code] spans (any case).
+var bxLLMCodeSpanBBCodeRE = regexp.MustCompile(`(?i)\[code\]([\s\S]*?)\[/code\]`)
+
+// bxInboundUserMentionRE matches Bitrix24 `[USER=<id>]Display Name[/USER]` /
+// `[BOT=<id>]…[/BOT]` mention tags emitted on group-chat webhooks via the
+// MESSAGE_ORIGINAL field. The name body uses non-greedy match across multiple
+// runes (no nested `[USER=`), stops at the closing tag. Mismatched opener/closer
+// (e.g. `[USER=…][/BOT]`) is tolerated — some Bitrix clients mix them.
+var bxInboundUserMentionRE = regexp.MustCompile(`(?s)\[(USER|BOT)=(\d+)\](.*?)\[/(?:USER|BOT)\]`)
+
+// bxConvertUserMentionsToReadable rewrites inbound Bitrix24 BBCode mentions
+// into an LLM-readable `@Name (ID:<id>)` form. The agent loop sees plain text,
+// so leaving raw `[USER=62]Đặng Văn Tình[/USER]` in the prompt costs tokens and
+// confuses retrieval / summarization. The "(ID:<id>)" annotation preserves the
+// numeric identity in case the agent needs to mention the same user back —
+// outbound formatting (see markdownToBitrixBBCode) does not synthesise mention
+// BBCode, but downstream tools (MCP, future explicit mention support) can
+// recover the id without a separate metadata channel.
+//
+// Empty display name (rare but observed when Bitrix sends `[USER=62][/USER]`)
+// falls back to "@user-<id>" so the mention is still visible. Caller is
+// responsible for stripping the bot's own mention BEFORE invoking this helper —
+// otherwise the bot will see itself referenced and may reply to itself.
+func bxConvertUserMentionsToReadable(text string) string {
+	if text == "" || !strings.Contains(text, "[") {
+		return text
+	}
+	return bxInboundUserMentionRE.ReplaceAllStringFunc(text, func(match string) string {
+		m := bxInboundUserMentionRE.FindStringSubmatch(match)
+		if len(m) < 4 {
+			return match
+		}
+		id := m[2]
+		name := strings.TrimSpace(m[3])
+		if name == "" {
+			return "@user-" + id
+		}
+		return "@" + name + " (ID:" + id + ")"
+	})
+}
+
+// bxAfterLLMCodeOpenRE is true when the opening [code] tag is immediately
+// followed by a line break (block / fenced-style BBCode from the model).
+var bxAfterLLMCodeOpenRE = regexp.MustCompile(`(?i)^\[code\]\s*\r?\n`)
+
+// bxNormalizeLLMInlineCodeBBCodeSpans turns one-line [code]x[/code] in prose
+// into [i]x[/i]. Keeps [code] when the opening tag is followed by a newline
+// or the inner text spans multiple lines (real snippets / JSON blocks).
+func bxNormalizeLLMInlineCodeBBCodeSpans(text string) string {
+	return bxLLMCodeSpanBBCodeRE.ReplaceAllStringFunc(text, func(full string) string {
+		if bxAfterLLMCodeOpenRE.MatchString(full) {
+			return full
+		}
+		m := bxLLMCodeSpanBBCodeRE.FindStringSubmatch(full)
+		if len(m) < 2 {
+			return full
+		}
+		inner := m[1]
+		if strings.Contains(inner, "\n") || strings.Contains(inner, "\r") {
+			return full
+		}
+		return "[i]" + strings.TrimSpace(inner) + "[/i]"
+	})
+}
 
 // markdownToBitrixBBCode converts Markdown-formatted text (as emitted by the
 // LLM) to the BBCode subset Bitrix24 chat renders. Pure function; safe to call
@@ -58,9 +126,8 @@ func markdownToBitrixBBCode(text string) string {
 	fenced := bxExtractFencedCode(text)
 	text = fenced.text
 
-	// Extract Markdown tables and render as preformatted [code] blocks —
-	// Bitrix has no table tag, so monospace is the best approximation.
-	// Placeholders `\x00TB{i}\x00`.
+	// Extract Markdown pipe tables (bordered or borderless) and replace with
+	// placeholders `\x00TB{i}\x00` for Bitrix-friendly rendering at restore time.
 	tables := bxExtractTables(text)
 	text = tables.text
 
@@ -124,20 +191,21 @@ func markdownToBitrixBBCode(text string) string {
 	// dashes (Bitrix has no [hr] equivalent).
 	text = regexp.MustCompile(`(?m)^[\s]*(?:-{3,}|\*{3,}|_{3,})[\s]*$`).ReplaceAllString(text, "────────")
 
-	// Restore inline code spans as [code]…[/code].
+	// Restore inline code spans as [i]…[/i] (Bitrix: prose identifiers; fenced
+	// blocks still use [code] below).
 	for i, code := range inline.codes {
 		text = strings.ReplaceAll(text,
 			fmt.Sprintf("\x00IC%d\x00", i),
-			"[code]"+code+"[/code]")
+			"[i]"+code+"[/i]")
 	}
 
-	// Restore tables — wrap each in a preformatted [code] block. Trim any
-	// trailing newline we captured so the [/code] stays on its own line.
+	// Restore tables as labeled bullet blocks (Bitrix does not render [table]).
+	// Malformed markdown tables use a plain aligned grid fallback.
 	for i, tbl := range tables.blocks {
-		tbl = strings.TrimRight(tbl, "\n")
+		tbl = bxRenderMarkdownTableToBBCode(tbl)
 		text = strings.ReplaceAll(text,
 			fmt.Sprintf("\x00TB%d\x00", i),
-			"[code]\n"+tbl+"\n[/code]")
+			tbl)
 	}
 
 	// Restore fenced code blocks last so their contents are completely
@@ -151,6 +219,8 @@ func markdownToBitrixBBCode(text string) string {
 
 	// Collapse 3+ blank lines to 2 (LLM sometimes over-paragraphs).
 	text = regexp.MustCompile(`\n{3,}`).ReplaceAllString(text, "\n\n")
+
+	text = bxNormalizeLLMInlineCodeBBCodeSpans(text)
 
 	return strings.TrimSpace(text)
 }
@@ -198,6 +268,7 @@ var bxHTMLToMarkdownReplacers = []struct {
 	{regexp.MustCompile(`(?i)<s>([\s\S]*?)</s>`), "~~${1}~~"},
 	{regexp.MustCompile(`(?i)<strike>([\s\S]*?)</strike>`), "~~${1}~~"},
 	{regexp.MustCompile(`(?i)<del>([\s\S]*?)</del>`), "~~${1}~~"},
+	// Normalise <code> to backticks so inline extraction renders as [i]…[/i].
 	{regexp.MustCompile(`(?i)<code>([\s\S]*?)</code>`), "`${1}`"},
 	{regexp.MustCompile(`(?i)<a\s+href="([^"]+)"[^>]*>([\s\S]*?)</a>`), "[${2}](${1})"},
 }
@@ -221,7 +292,7 @@ type bxExtractedBlocks struct {
 // has no syntax highlighting, so it would only add noise.
 //
 // The prefix group `(?:[\w+.-]+\n|\n)?` covers three shapes without letting a
-// single-line `` ```code``` `` mis-parse `code` as a lang hint:
+// single-line “ ```code``` “ mis-parse `code` as a lang hint:
 //   - ```py\n…\n```     lang hint consumed with its trailing newline
 //   - ```\n…\n```       bare newline after the fence
 //   - ```code```        no prefix → content capture wins, `code` is content
@@ -269,24 +340,315 @@ type bxExtractedTables struct {
 
 // bxExtractTables detects GitHub-style Markdown tables (header row + separator
 // row + 1+ body rows) and replaces each with a `\x00TB{i}\x00` placeholder.
-// The extracted text is kept verbatim and re-emitted inside [code]…[/code]
-// since Bitrix has no table primitive.
-//
-// The regex is deliberately permissive: two or more pipe-delimited lines in a
-// row is enough to qualify. Mis-detection only costs us a monospace block
-// around something that was probably meant to look tabular anyway.
+// Rows may be "bordered" (start with |) or "borderless" (no leading pipe) as
+// long as cells are pipe-delimited and the separator row validates.
 func bxExtractTables(text string) bxExtractedTables {
-	// Match header | ... |, separator | --- |, then 1+ body rows.
-	re := regexp.MustCompile(`(?m)^\|[^\n]*\|\s*\n\|[\s\-|:]+\|\s*\n(?:\|[^\n]*\|\s*\n?)+`)
+	lines := strings.Split(text, "\n")
 	var blocks []string
-	for _, m := range re.FindAllString(text, -1) {
-		blocks = append(blocks, m)
-	}
+	var out []string
 	i := 0
-	text = re.ReplaceAllStringFunc(text, func(_ string) string {
-		p := fmt.Sprintf("\x00TB%d\x00", i)
+	for i < len(lines) {
+		block, end := bxExtractOneMarkdownTable(lines, i)
+		if block != "" {
+			blocks = append(blocks, block)
+			out = append(out, fmt.Sprintf("\x00TB%d\x00", len(blocks)-1))
+			i = end
+			continue
+		}
+		out = append(out, lines[i])
 		i++
-		return p
-	})
-	return bxExtractedTables{text: text, blocks: blocks}
+	}
+	joined := strings.Join(out, "\n")
+	return bxExtractedTables{text: joined, blocks: blocks}
+}
+
+// bxExtractOneMarkdownTable returns a markdown table block starting at start,
+// and the index of the first line after the table. If no table starts here,
+// returns ("", start+1).
+func bxExtractOneMarkdownTable(lines []string, start int) (block string, next int) {
+	if start+2 >= len(lines) {
+		return "", start + 1
+	}
+	hdr := strings.TrimSpace(lines[start])
+	sep := strings.TrimSpace(lines[start+1])
+	if hdr == "" || sep == "" {
+		return "", start + 1
+	}
+	hCells := bxSplitTableRow(hdr)
+	if len(hCells) < 1 {
+		return "", start + 1
+	}
+	sCells := bxSplitTableRow(sep)
+	if len(sCells) != len(hCells) || !bxIsSeparatorRow(sCells) {
+		return "", start + 1
+	}
+	body0 := strings.TrimSpace(lines[start+2])
+	if body0 == "" || !strings.Contains(body0, "|") {
+		return "", start + 1
+	}
+	b0Cells := bxSplitTableRow(body0)
+	if len(b0Cells) < 1 {
+		return "", start + 1
+	}
+	end := start + 2
+	for end+1 < len(lines) {
+		nl := strings.TrimSpace(lines[end+1])
+		if nl == "" {
+			break
+		}
+		if !strings.Contains(nl, "|") {
+			break
+		}
+		nextCells := bxSplitTableRow(nl)
+		if len(nextCells) == len(hCells) && bxIsSeparatorRow(nextCells) {
+			break
+		}
+		end++
+	}
+	var b strings.Builder
+	for j := start; j <= end; j++ {
+		if j > start {
+			b.WriteByte('\n')
+		}
+		b.WriteString(lines[j])
+	}
+	return b.String(), end + 1
+}
+
+func bxRenderMarkdownTableToBBCode(raw string) string {
+	header, rows, ok := bxParseMarkdownTable(raw)
+	if !ok {
+		return bxRenderMarkdownTableFallback(raw)
+	}
+	return bxRenderMarkdownTableAsLabeledBullets(header, rows)
+}
+
+// bxRenderMarkdownTableAsLabeledBullets turns a parsed pipe table into plain
+// lines Bitrix24 chat can read: each body row becomes one record; the first
+// field starts with "•", continuation fields with "—", each line
+// "[b]Header[/b]: value".
+func bxRenderMarkdownTableAsLabeledBullets(header []string, rows [][]string) string {
+	var b strings.Builder
+	for _, row := range rows {
+		for ci, h := range header {
+			label := bxRenderTableCellMarkdown(h)
+			if label == "" {
+				label = " "
+			}
+			val := ""
+			if ci < len(row) {
+				val = bxRenderTableCellMarkdown(row[ci])
+			}
+			if strings.TrimSpace(val) == "" {
+				val = " "
+			}
+			prefix := "• "
+			if ci > 0 {
+				prefix = "— "
+			}
+			b.WriteString(prefix)
+			b.WriteString("[b]")
+			b.WriteString(label)
+			b.WriteString("[/b]: ")
+			b.WriteString(val)
+			b.WriteString("\n")
+		}
+		b.WriteString("\n")
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func bxParseMarkdownTable(raw string) ([]string, [][]string, bool) {
+	lines := strings.Split(strings.TrimSpace(raw), "\n")
+	if len(lines) < 3 {
+		return nil, nil, false
+	}
+
+	header := bxSplitTableRow(lines[0])
+	sep := bxSplitTableRow(lines[1])
+	if len(header) == 0 || len(sep) != len(header) || !bxIsSeparatorRow(sep) {
+		return nil, nil, false
+	}
+
+	rows := make([][]string, 0, len(lines)-2)
+	for _, line := range lines[2:] {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		row := bxSplitTableRow(line)
+		if len(row) == 0 {
+			continue
+		}
+		if len(row) < len(header) {
+			row = append(row, make([]string, len(header)-len(row))...)
+		}
+		if len(row) > len(header) {
+			row = row[:len(header)]
+		}
+		rows = append(rows, row)
+	}
+	if len(rows) == 0 {
+		return nil, nil, false
+	}
+	return header, rows, true
+}
+
+func bxSplitTableRow(row string) []string {
+	row = strings.TrimSpace(row)
+	if row == "" {
+		return nil
+	}
+
+	var out []string
+	var cell strings.Builder
+	escaped := false
+	for _, r := range row {
+		if escaped {
+			cell.WriteRune(r)
+			escaped = false
+			continue
+		}
+		if r == '\\' {
+			escaped = true
+			continue
+		}
+		if r == '|' {
+			out = append(out, strings.TrimSpace(cell.String()))
+			cell.Reset()
+			continue
+		}
+		cell.WriteRune(r)
+	}
+	if escaped {
+		cell.WriteRune('\\')
+	}
+	out = append(out, strings.TrimSpace(cell.String()))
+
+	// Drop boundary empties for canonical "| a | b |" rows.
+	if len(out) > 0 && out[0] == "" {
+		out = out[1:]
+	}
+	if len(out) > 0 && out[len(out)-1] == "" {
+		out = out[:len(out)-1]
+	}
+	return out
+}
+
+func bxIsSeparatorRow(cells []string) bool {
+	sepRe := regexp.MustCompile(`^:?-{3,}:?$`)
+	for _, c := range cells {
+		c = strings.ReplaceAll(strings.TrimSpace(c), " ", "")
+		if !sepRe.MatchString(c) {
+			return false
+		}
+	}
+	return true
+}
+
+func bxRenderTableCellMarkdown(cell string) string {
+	cell = strings.TrimSpace(cell)
+	if cell == "" {
+		return " "
+	}
+	cell = bxHTMLToMarkdown(cell)
+	cell = regexp.MustCompile(`!\[([^\]]*)\]\(([^)]+)\)`).ReplaceAllString(cell, "[url=$2]$1[/url]")
+	cell = regexp.MustCompile(`\[([^\]]+)\]\(([^)]+)\)`).ReplaceAllString(cell, "[url=$2]$1[/url]")
+	cell = regexp.MustCompile(`\*\*(.+?)\*\*`).ReplaceAllString(cell, "[b]$1[/b]")
+	cell = regexp.MustCompile(`__(.+?)__`).ReplaceAllString(cell, "[b]$1[/b]")
+	cell = regexp.MustCompile(`~~(.+?)~~`).ReplaceAllString(cell, "[s]$1[/s]")
+	cell = regexp.MustCompile("`([^`\\n]+?)`").ReplaceAllString(cell, "[i]$1[/i]")
+
+	italicStar := regexp.MustCompile(`(^|[^\w*])\*([^*\n]+?)\*([^\w*]|$)`)
+	italicUnder := regexp.MustCompile(`(^|[^\w_])_([^_\n]+?)_([^\w_]|$)`)
+	for i := 0; i < 8; i++ {
+		prev := cell
+		cell = italicStar.ReplaceAllString(cell, "$1[i]$2[/i]$3")
+		cell = italicUnder.ReplaceAllString(cell, "$1[i]$2[/i]$3")
+		if cell == prev {
+			break
+		}
+	}
+	return strings.TrimSpace(cell)
+}
+
+func bxRenderMarkdownTableFallback(raw string) string {
+	lines := strings.Split(strings.TrimSpace(raw), "\n")
+	if len(lines) == 0 {
+		return ""
+	}
+
+	var rows [][]string
+	for i, line := range lines {
+		if i == 1 {
+			// Skip markdown separator row in fallback.
+			continue
+		}
+		cells := bxSplitTableRow(line)
+		if len(cells) == 0 {
+			continue
+		}
+		for idx, c := range cells {
+			cells[idx] = bxRenderTableCellMarkdown(c)
+		}
+		rows = append(rows, cells)
+	}
+	if len(rows) == 0 {
+		return strings.TrimSpace(raw)
+	}
+
+	colCount := 0
+	for _, row := range rows {
+		if len(row) > colCount {
+			colCount = len(row)
+		}
+	}
+	if colCount == 0 {
+		return strings.TrimSpace(raw)
+	}
+
+	widths := make([]int, colCount)
+	for _, row := range rows {
+		for i := 0; i < colCount; i++ {
+			val := ""
+			if i < len(row) {
+				val = row[i]
+			}
+			if l := len([]rune(val)); l > widths[i] {
+				widths[i] = l
+			}
+		}
+	}
+
+	renderRow := func(row []string) string {
+		parts := make([]string, colCount)
+		for i := 0; i < colCount; i++ {
+			val := ""
+			if i < len(row) {
+				val = row[i]
+			}
+			pad := widths[i] - len([]rune(val))
+			if pad > 0 {
+				val += strings.Repeat(" ", pad)
+			}
+			parts[i] = val
+		}
+		return strings.Join(parts, " | ")
+	}
+
+	dividerParts := make([]string, colCount)
+	for i, w := range widths {
+		if w <= 0 {
+			w = 1
+		}
+		dividerParts[i] = strings.Repeat("-", w)
+	}
+	divider := strings.Join(dividerParts, "-+-")
+
+	var out []string
+	out = append(out, renderRow(rows[0]))
+	out = append(out, divider)
+	for _, row := range rows[1:] {
+		out = append(out, renderRow(row))
+	}
+	return strings.TrimSpace(strings.Join(out, "\n"))
 }

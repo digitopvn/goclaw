@@ -205,6 +205,75 @@ func TestHandleMessage_GroupWithMention_Published(t *testing.T) {
 	}
 }
 
+// Regression: Bitrix24 strips ALL `[USER=...]` mentions from MESSAGE on group
+// chats — including mentions of OTHER users — so relying on MESSAGE alone loses
+// the addressed-user context. Handler must read MESSAGE_ORIGINAL when present,
+// strip THIS bot's mention, and surface remaining user mentions to the agent
+// in a readable form. Field-tested on a payload that originally arrived as just
+// "Đây này em", losing two upstream `[USER=...]` mentions to teammates.
+func TestHandleMessage_GroupPreservesOtherUserMentions(t *testing.T) {
+	ch, mb := newHandleTestChannel(t, 101, true)
+	defer resetWebhookRouterForTest()
+
+	ch.DispatchEvent(context.Background(), &Event{
+		Type: EventMessageAdd,
+		Params: EventParams{
+			FromUserID:  "614",
+			DialogID:    "chat4932",
+			MessageType: "chat",
+			// Bitrix24 strips ALL mentions from MESSAGE — even of other users.
+			// MESSAGE_ORIGINAL is the raw BBCode source.
+			Message:         "Đây này em",
+			MessageOriginal: "[USER=982]Ngân Nguyệt - Hàn Lập[/USER] [USER=62]Đặng Văn Tình[/USER] [USER=101]Bot[/USER] Đây này em",
+			MentionedList:   map[string]string{"101": "101"}, // pass mention check
+		},
+	})
+	msg, ok := drainOne(mb, 500*time.Millisecond)
+	if !ok {
+		t.Fatal("mentioned group message must publish")
+	}
+	if strings.Contains(msg.Content, "[USER=101]") {
+		t.Errorf("THIS bot's mention must be stripped, got: %q", msg.Content)
+	}
+	if strings.Contains(msg.Content, "[USER=") || strings.Contains(msg.Content, "[/USER]") {
+		t.Errorf("remaining BBCode tags must be converted, got: %q", msg.Content)
+	}
+	if !strings.Contains(msg.Content, "@Ngân Nguyệt - Hàn Lập (ID:982)") {
+		t.Errorf("other user mention must be preserved/readable, got: %q", msg.Content)
+	}
+	if !strings.Contains(msg.Content, "@Đặng Văn Tình (ID:62)") {
+		t.Errorf("other user mention must be preserved/readable, got: %q", msg.Content)
+	}
+	if !strings.Contains(msg.Content, "Đây này em") {
+		t.Errorf("body lost, got: %q", msg.Content)
+	}
+}
+
+// Legacy portals may omit MESSAGE_ORIGINAL — handler must fall back to
+// MESSAGE (the historical behavior) without panicking.
+func TestHandleMessage_GroupFallsBackToMessageWhenOriginalAbsent(t *testing.T) {
+	ch, mb := newHandleTestChannel(t, 101, true)
+	defer resetWebhookRouterForTest()
+
+	ch.DispatchEvent(context.Background(), &Event{
+		Type: EventMessageAdd,
+		Params: EventParams{
+			FromUserID:    "42",
+			DialogID:      "chat10",
+			MessageType:   "chat",
+			Message:       "[USER=101]Bot[/USER] hello",
+			MentionedList: map[string]string{"101": "101"},
+		},
+	})
+	msg, ok := drainOne(mb, 500*time.Millisecond)
+	if !ok {
+		t.Fatal("expected publish")
+	}
+	if !strings.Contains(msg.Content, "hello") {
+		t.Errorf("body lost on MESSAGE-only fallback: %q", msg.Content)
+	}
+}
+
 func TestIsMentioned_MatchesBOTVariant(t *testing.T) {
 	ch, _ := newHandleTestChannel(t, 101, false)
 	defer resetWebhookRouterForTest()
