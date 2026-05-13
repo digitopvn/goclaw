@@ -147,7 +147,13 @@ func (l *Loop) buildMessages(ctx context.Context, history []providers.Message, s
 	}
 	// Always build MCP tool descriptions for inline tools — in hybrid search
 	// mode the kept inline tools still need descriptions in the system prompt.
-	mcpToolDescs := l.buildMCPToolDescs(toolNames)
+	// A-G1 fix (260512): scope MCP descriptions to the calling actor's available
+	// tools. Otherwise lookupMCPDescFromUserTools surfaces descriptions from
+	// any user's cache → LLM sees tools it can't actually call (executeToolForActor
+	// scoped to actorUserID returns "tool not found"). Compute actor via
+	// resolveActorUserID — same key the agent loop uses to fetch per-user MCP creds.
+	actorUserID := resolveActorUserID(userID, store.SenderIDFromContext(ctx), peerKind, channelType)
+	mcpToolDescs := l.buildMCPToolDescs(toolNames, actorUserID)
 
 	// Bootstrap DM mode: only restrict tools for open agents (identity being created).
 	// Predefined agents keep full capabilities — BOOTSTRAP.md guides behavior.
