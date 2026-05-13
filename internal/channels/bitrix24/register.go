@@ -104,6 +104,56 @@ func (c *Channel) registerBot(ctx context.Context) (int, error) {
 	return 0, fmt.Errorf("bitrix24 imbot.register: %w", err)
 }
 
+// unregisterBot calls imbot.unregister to remove the bot from the Bitrix24
+// portal. Returns nil when the bot was successfully unregistered OR when it
+// no longer exists on the portal — admin may have manually deleted via
+// Bitrix UI between channel Start and Destroy, in which case there's nothing
+// to do and we treat the absence as success (idempotent).
+//
+// Caller is responsible for clearing local state (Portal.ForgetRegisteredBot,
+// Router.UnregisterBot) — this function only owns the network call.
+func (c *Channel) unregisterBot(ctx context.Context, botID int) error {
+	if botID <= 0 {
+		return nil
+	}
+	client := c.Client()
+	if client == nil {
+		return errors.New("bitrix24 unregister: client not initialised")
+	}
+	_, err := client.Call(ctx, "imbot.unregister", map[string]any{"BOT_ID": botID})
+	if err == nil {
+		return nil
+	}
+	if isBotNotFoundError(err) {
+		slog.Info("bitrix24 unregister: bot already absent on portal — treating as success",
+			"portal", c.cfg.Portal, "bot_id", botID)
+		return nil
+	}
+	return fmt.Errorf("bitrix24 imbot.unregister: %w", err)
+}
+
+// isBotNotFoundError pattern-matches the Bitrix24 rejection when BOT_ID does
+// not exist on the portal. Bitrix returns different codes across portal
+// versions, so we check both the structured code field and a few common
+// description substrings.
+func isBotNotFoundError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var apiErr *APIError
+	if errors.As(err, &apiErr) {
+		if apiErr.Code == "ERROR_BOT_NOT_FOUND" || apiErr.Code == "BOT_NOT_FOUND" {
+			return true
+		}
+		if containsFold(apiErr.Description, "bot not found") ||
+			containsFold(apiErr.Description, "not registered") ||
+			containsFold(apiErr.Description, "no bot with") {
+			return true
+		}
+	}
+	return false
+}
+
 // registerParams builds the imbot.register body. Avatar fetching is
 // best-effort — a slow or broken source shouldn't block startup.
 func (c *Channel) registerParams(ctx context.Context) map[string]any {

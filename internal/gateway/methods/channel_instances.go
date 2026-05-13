@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/nextlevelbuilder/goclaw/internal/bus"
+	"github.com/nextlevelbuilder/goclaw/internal/channels"
 	"github.com/nextlevelbuilder/goclaw/internal/gateway"
 	"github.com/nextlevelbuilder/goclaw/internal/i18n"
 	"github.com/nextlevelbuilder/goclaw/internal/store"
@@ -30,11 +31,15 @@ type ChannelInstancesMethods struct {
 	agentStore store.AgentStore
 	msgBus     *bus.MessageBus
 	eventBus   bus.EventPublisher
+	channelMgr *channels.Manager // optional — enables ChannelDestroyer hook on delete
 }
 
 // NewChannelInstancesMethods creates a new handler for channel instance management.
-func NewChannelInstancesMethods(s store.ChannelInstanceStore, as store.AgentStore, msgBus *bus.MessageBus, eventBus bus.EventPublisher) *ChannelInstancesMethods {
-	return &ChannelInstancesMethods{store: s, agentStore: as, msgBus: msgBus, eventBus: eventBus}
+// channelMgr is optional; when non-nil and the channel's runtime impl
+// satisfies channels.ChannelDestroyer, handleDelete invokes Destroy() before
+// removing the DB row so external resources (e.g. Bitrix24 bots) get cleaned.
+func NewChannelInstancesMethods(s store.ChannelInstanceStore, as store.AgentStore, msgBus *bus.MessageBus, eventBus bus.EventPublisher, channelMgr *channels.Manager) *ChannelInstancesMethods {
+	return &ChannelInstancesMethods{store: s, agentStore: as, msgBus: msgBus, eventBus: eventBus, channelMgr: channelMgr}
 }
 
 // Register registers all channel instance RPC methods.
@@ -227,6 +232,20 @@ func (m *ChannelInstancesMethods) handleDelete(ctx context.Context, client *gate
 	if store.IsDefaultChannelInstance(inst.Name) {
 		client.SendResponse(protocol.NewErrorResponse(req.ID, protocol.ErrInvalidRequest, i18n.T(locale, i18n.MsgCannotDeleteDefaultInst)))
 		return
+	}
+
+	// Best-effort: notify the channel impl so external resources (e.g. the
+	// Bitrix24 imbot.register'd bot) get cleaned up BEFORE the DB row is
+	// removed. Mirror of HTTP handler — see internal/http/channel_instances.go.
+	if m.channelMgr != nil {
+		if ch, ok := m.channelMgr.GetChannel(inst.Name); ok {
+			if destroyer, ok := ch.(channels.ChannelDestroyer); ok {
+				if err := destroyer.Destroy(ctx); err != nil {
+					slog.Warn("channels.instances.delete: destroyer failed — proceeding with DB delete",
+						"name", inst.Name, "type", inst.ChannelType, "err", err)
+				}
+			}
+		}
 	}
 
 	if err := m.store.Delete(ctx, id); err != nil {

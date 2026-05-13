@@ -26,6 +26,7 @@ type ChannelInstancesHandler struct {
 	tenantStore     store.TenantStore
 	msgBus          *bus.MessageBus
 	memberResolver  channels.MemberResolver // optional — enriches file_writer metadata on addwriter
+	channelMgr      *channels.Manager       // optional — enables ChannelDestroyer hook on delete
 }
 
 // NewChannelInstancesHandler creates a handler for channel instance management endpoints.
@@ -37,6 +38,15 @@ func NewChannelInstancesHandler(s store.ChannelInstanceStore, agentStore store.A
 // metadata when the caller supplies neither DisplayName nor Username.
 func (h *ChannelInstancesHandler) SetMemberResolver(r channels.MemberResolver) {
 	h.memberResolver = r
+}
+
+// SetChannelManager wires the channel Manager so handleDelete can invoke
+// ChannelDestroyer.Destroy() before removing the DB row — required for
+// Bitrix24 to imbot.unregister its bot on portal-side. Setter-pattern (vs
+// constructor param) because the Manager is created AFTER this handler
+// in cmd/gateway.go's startup ordering.
+func (h *ChannelInstancesHandler) SetChannelManager(mgr *channels.Manager) {
+	h.channelMgr = mgr
 }
 
 // RegisterRoutes registers all channel instance routes on the given mux.
@@ -258,6 +268,25 @@ func (h *ChannelInstancesHandler) handleDelete(w http.ResponseWriter, r *http.Re
 	if store.IsDefaultChannelInstance(inst.Name) {
 		writeError(w, http.StatusForbidden, protocol.ErrUnauthorized, i18n.T(locale, i18n.MsgCannotDeleteDefaultInst))
 		return
+	}
+
+	// Best-effort: notify the channel impl so external resources (e.g. the
+	// Bitrix24 imbot.register'd bot) get cleaned up BEFORE the DB row is
+	// removed. Order matters: deleting the row first triggers a cache
+	// invalidate → InstanceLoader Reload Stop's the channel and clears
+	// in-memory botID, leaving the upstream bot orphaned.
+	//
+	// Channels without external state (Telegram, Discord, Slack, …) don't
+	// implement ChannelDestroyer and skip this block.
+	if h.channelMgr != nil {
+		if ch, ok := h.channelMgr.GetChannel(inst.Name); ok {
+			if destroyer, ok := ch.(channels.ChannelDestroyer); ok {
+				if err := destroyer.Destroy(r.Context()); err != nil {
+					slog.Warn("channel_instances.delete: destroyer failed — proceeding with DB delete",
+						"name", inst.Name, "type", inst.ChannelType, "err", err)
+				}
+			}
+		}
 	}
 
 	if err := h.store.Delete(r.Context(), id); err != nil {

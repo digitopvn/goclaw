@@ -140,6 +140,24 @@ type StreamingChannel interface {
 	ReasoningStreamEnabled() bool
 }
 
+// ChannelDestroyer extends Channel with a deletion hook. Channels that
+// implement this are notified BEFORE their channel_instance row is removed
+// from the DB so they can release external resources that won't survive a
+// normal Stop() — e.g. Bitrix24 channels call imbot.unregister to delete
+// the bot on the portal; without this hook the bot lingers as a zombie.
+//
+// Implementation must be best-effort: handlers log Destroy failures and
+// proceed with DB deletion regardless. Blocking the delete on a permanently
+// dead upstream would leave the row stuck forever with no recovery path.
+//
+// Channels without external state (Telegram, Discord, Slack — the channel
+// itself IS the bot, identified by a token stored locally) don't implement
+// this interface; their Stop() already handles all cleanup.
+type ChannelDestroyer interface {
+	Channel
+	Destroy(ctx context.Context) error
+}
+
 // BlockReplyChannel is optionally implemented by channels that override
 // the gateway-level block_reply setting. Returns nil to inherit the gateway default.
 type BlockReplyChannel interface {

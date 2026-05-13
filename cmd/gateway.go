@@ -434,6 +434,10 @@ func runGateway() {
 	cfgPermsMethods.SetMemberResolver(channelMgr)
 	if channelInstancesH != nil {
 		channelInstancesH.SetMemberResolver(channelMgr)
+		// Setter (not constructor) because wireHTTP runs before channelMgr is
+		// created — required for handleDelete to invoke ChannelDestroyer on
+		// Bitrix24 channels (imbot.unregister bot cleanup).
+		channelInstancesH.SetChannelManager(channelMgr)
 	}
 
 	// Wire channel sender + tenant checker on message tool (now that channelMgr exists)

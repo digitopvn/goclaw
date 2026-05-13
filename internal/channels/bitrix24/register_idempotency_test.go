@@ -410,6 +410,286 @@ func TestEventHandlerURL_FallsBackToLegacyConfig(t *testing.T) {
 	}
 }
 
+// ---------- Phase D: unregister + destroy ----------
+
+// TestUnregisterBot_Success verifies the happy path: imbot.unregister returns
+// success → unregisterBot returns nil.
+func TestUnregisterBot_Success(t *testing.T) {
+	var calls int32
+	h := restHandler{
+		"imbot.unregister": func(w http.ResponseWriter, r *http.Request) {
+			atomic.AddInt32(&calls, 1)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"result":true}`))
+		},
+	}
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+	ch := newRegisterTestChannel(t, srv, store.BitrixPortalState{
+		RefreshToken: "RT", AccessToken: "AT", ExpiresAt: time.Now().Add(time.Hour),
+	})
+	defer resetWebhookRouterForTest()
+
+	if err := ch.unregisterBot(context.Background(), 42); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := atomic.LoadInt32(&calls); got != 1 {
+		t.Errorf("expected 1 call to imbot.unregister, got %d", got)
+	}
+}
+
+// TestUnregisterBot_BotNotFound verifies idempotent behavior — Bitrix returning
+// "bot not found" (because admin already deleted via UI) is treated as success.
+func TestUnregisterBot_BotNotFound(t *testing.T) {
+	h := restHandler{
+		"imbot.unregister": func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":"ERROR_BOT_NOT_FOUND","error_description":"Bot not found on this portal"}`))
+		},
+	}
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+	ch := newRegisterTestChannel(t, srv, store.BitrixPortalState{
+		RefreshToken: "RT", AccessToken: "AT", ExpiresAt: time.Now().Add(time.Hour),
+	})
+	defer resetWebhookRouterForTest()
+
+	if err := ch.unregisterBot(context.Background(), 42); err != nil {
+		t.Errorf("expected nil for bot-not-found (idempotent), got %v", err)
+	}
+}
+
+// TestUnregisterBot_TransportError surfaces real errors (network/5xx) so the
+// caller can log a warn and move on — must NOT be swallowed.
+func TestUnregisterBot_TransportError(t *testing.T) {
+	h := restHandler{
+		"imbot.unregister": func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"error":"INTERNAL","error_description":"portal went away"}`))
+		},
+	}
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+	ch := newRegisterTestChannel(t, srv, store.BitrixPortalState{
+		RefreshToken: "RT", AccessToken: "AT", ExpiresAt: time.Now().Add(time.Hour),
+	})
+	defer resetWebhookRouterForTest()
+
+	if err := ch.unregisterBot(context.Background(), 42); err == nil {
+		t.Fatal("expected error for 500 response, got nil")
+	}
+}
+
+// TestUnregisterBot_ZeroBotID skips the network call entirely — channel that
+// never successfully Start()-ed has botID == 0.
+func TestUnregisterBot_ZeroBotID(t *testing.T) {
+	var calls int32
+	h := restHandler{
+		"imbot.unregister": func(w http.ResponseWriter, r *http.Request) {
+			atomic.AddInt32(&calls, 1)
+			_, _ = w.Write([]byte(`{"result":true}`))
+		},
+	}
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+	ch := newRegisterTestChannel(t, srv, store.BitrixPortalState{
+		RefreshToken: "RT", AccessToken: "AT", ExpiresAt: time.Now().Add(time.Hour),
+	})
+	defer resetWebhookRouterForTest()
+
+	if err := ch.unregisterBot(context.Background(), 0); err != nil {
+		t.Errorf("expected nil for botID=0, got %v", err)
+	}
+	if got := atomic.LoadInt32(&calls); got != 0 {
+		t.Errorf("expected zero calls when botID=0, got %d", got)
+	}
+}
+
+// TestDestroy_FullFlow verifies all three steps run: imbot.unregister fires,
+// the bot is removed from portal.state.RegisteredBots, and the channel stops.
+func TestDestroy_FullFlow(t *testing.T) {
+	var unregCalls int32
+	h := restHandler{
+		"imbot.unregister": func(w http.ResponseWriter, r *http.Request) {
+			atomic.AddInt32(&unregCalls, 1)
+			_, _ = w.Write([]byte(`{"result":true}`))
+		},
+	}
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	// Pre-state: bot 42 registered under code "support_bot" (matches factory cfg).
+	ch := newRegisterTestChannel(t, srv, store.BitrixPortalState{
+		RefreshToken:   "RT",
+		AccessToken:    "AT",
+		ExpiresAt:      time.Now().Add(time.Hour),
+		RegisteredBots: map[string]int{"support_bot": 42},
+	})
+	defer resetWebhookRouterForTest()
+	// Simulate post-Start state.
+	ch.startMu.Lock()
+	ch.botID = 42
+	ch.startMu.Unlock()
+
+	if err := ch.Destroy(context.Background()); err != nil {
+		t.Fatalf("Destroy: %v", err)
+	}
+	if got := atomic.LoadInt32(&unregCalls); got != 1 {
+		t.Errorf("expected 1 imbot.unregister call, got %d", got)
+	}
+	if _, present := ch.Portal().LookupRegisteredBot("support_bot"); present {
+		t.Error("expected RegisteredBots[support_bot] to be cleared")
+	}
+	if ch.IsRunning() {
+		t.Error("expected channel to be stopped after Destroy")
+	}
+}
+
+// TestDestroy_BotIDZero — channel that never started successfully still gets
+// the local cleanup path; no Bitrix call.
+func TestDestroy_BotIDZero(t *testing.T) {
+	var unregCalls int32
+	h := restHandler{
+		"imbot.unregister": func(w http.ResponseWriter, r *http.Request) {
+			atomic.AddInt32(&unregCalls, 1)
+		},
+	}
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	ch := newRegisterTestChannel(t, srv, store.BitrixPortalState{
+		RefreshToken: "RT", AccessToken: "AT", ExpiresAt: time.Now().Add(time.Hour),
+	})
+	defer resetWebhookRouterForTest()
+	// botID stays 0 — channel never claimed a bot.
+
+	if err := ch.Destroy(context.Background()); err != nil {
+		t.Fatalf("Destroy: %v", err)
+	}
+	if got := atomic.LoadInt32(&unregCalls); got != 0 {
+		t.Errorf("expected 0 imbot.unregister calls when botID=0, got %d", got)
+	}
+}
+
+// TestDestroy_UnregisterFailureProceedsToCleanup verifies the best-effort
+// contract: a Bitrix-side 5xx is logged but Destroy still returns nil and the
+// local channel is stopped — DB delete upstream must not be blocked.
+func TestDestroy_UnregisterFailureProceedsToCleanup(t *testing.T) {
+	h := restHandler{
+		"imbot.unregister": func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"error":"INTERNAL","error_description":"portal 5xx"}`))
+		},
+	}
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	ch := newRegisterTestChannel(t, srv, store.BitrixPortalState{
+		RefreshToken:   "RT",
+		AccessToken:    "AT",
+		ExpiresAt:      time.Now().Add(time.Hour),
+		RegisteredBots: map[string]int{"support_bot": 42},
+	})
+	defer resetWebhookRouterForTest()
+	ch.startMu.Lock()
+	ch.botID = 42
+	ch.startMu.Unlock()
+
+	// Destroy must NOT propagate the unregister failure — it only returns
+	// the error from Stop(), which is nil under normal conditions.
+	if err := ch.Destroy(context.Background()); err != nil {
+		t.Errorf("Destroy should not surface unregister failures: %v", err)
+	}
+	// ForgetRegisteredBot still ran (it's independent of the API call).
+	if _, present := ch.Portal().LookupRegisteredBot("support_bot"); present {
+		t.Error("ForgetRegisteredBot should still run despite unregister failure")
+	}
+	if ch.IsRunning() {
+		t.Error("channel should be stopped despite unregister failure")
+	}
+}
+
+// TestForgetRegisteredBot_Success — happy path: map entry removed + persisted.
+func TestForgetRegisteredBot_Success(t *testing.T) {
+	fs := newFakeStore()
+	tid := store.GenNewID()
+	creds, _ := json.Marshal(store.BitrixPortalCredentials{ClientID: "cid", ClientSecret: "secret"})
+	state, _ := json.Marshal(store.BitrixPortalState{
+		RegisteredBots: map[string]int{"alpha": 1, "beta": 2},
+	})
+	fs.seed(tid, "p", "p.bitrix24.com", creds, state)
+	p, err := NewPortal(context.Background(), tid, "p", fs, "")
+	if err != nil {
+		t.Fatalf("NewPortal: %v", err)
+	}
+
+	if err := p.ForgetRegisteredBot(context.Background(), "alpha"); err != nil {
+		t.Fatalf("ForgetRegisteredBot: %v", err)
+	}
+	if _, ok := p.LookupRegisteredBot("alpha"); ok {
+		t.Error("alpha should be gone after Forget")
+	}
+	if id, ok := p.LookupRegisteredBot("beta"); !ok || id != 2 {
+		t.Errorf("beta should remain (id=2), got id=%d ok=%v", id, ok)
+	}
+}
+
+// TestForgetRegisteredBot_IdempotentAbsent — no-op when code wasn't there.
+func TestForgetRegisteredBot_IdempotentAbsent(t *testing.T) {
+	fs := newFakeStore()
+	tid := store.GenNewID()
+	creds, _ := json.Marshal(store.BitrixPortalCredentials{ClientID: "cid", ClientSecret: "secret"})
+	fs.seed(tid, "p", "p.bitrix24.com", creds, nil)
+	p, err := NewPortal(context.Background(), tid, "p", fs, "")
+	if err != nil {
+		t.Fatalf("NewPortal: %v", err)
+	}
+	if err := p.ForgetRegisteredBot(context.Background(), "nothing"); err != nil {
+		t.Errorf("expected nil on absent code, got %v", err)
+	}
+}
+
+// TestForgetRegisteredBot_EmptyCode — guard against accidental clear-all.
+func TestForgetRegisteredBot_EmptyCode(t *testing.T) {
+	fs := newFakeStore()
+	tid := store.GenNewID()
+	creds, _ := json.Marshal(store.BitrixPortalCredentials{ClientID: "cid", ClientSecret: "secret"})
+	fs.seed(tid, "p", "p.bitrix24.com", creds, nil)
+	p, err := NewPortal(context.Background(), tid, "p", fs, "")
+	if err != nil {
+		t.Fatalf("NewPortal: %v", err)
+	}
+	if err := p.ForgetRegisteredBot(context.Background(), ""); err == nil {
+		t.Fatal("expected error for empty code")
+	}
+}
+
+// TestIsBotNotFoundError_Variants ensures the substring matcher catches all
+// Bitrix24 error shapes for "bot doesn't exist".
+func TestIsBotNotFoundError_Variants(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"nil", nil, false},
+		{"code ERROR_BOT_NOT_FOUND", &APIError{Code: "ERROR_BOT_NOT_FOUND"}, true},
+		{"code BOT_NOT_FOUND", &APIError{Code: "BOT_NOT_FOUND"}, true},
+		{"description bot not found", &APIError{Code: "BAD", Description: "bot not found"}, true},
+		{"description not registered", &APIError{Code: "BAD", Description: "Bot is not registered for this user"}, true},
+		{"description no bot with", &APIError{Code: "BAD", Description: "no bot with id=42"}, true},
+		{"unrelated error", &APIError{Code: "QUERY_LIMIT_EXCEEDED", Description: "Too many requests"}, false},
+		{"plain error", errors.New("network refused"), false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isBotNotFoundError(tc.err); got != tc.want {
+				t.Errorf("isBotNotFoundError = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 // ---------- Sanity: ensure our uuid/tenant helper types compile ----------
 // (Compile-time reference so unused imports from the fake-store pattern
 // don't trip `go vet`; no runtime check needed.)

@@ -334,6 +334,29 @@ func (p *Portal) RecordRegisteredBot(ctx context.Context, code string, id int) e
 	return p.writeState(ctx, stateCopy)
 }
 
+// ForgetRegisteredBot removes a (bot_code → bot_id) mapping from portal state.
+// Mirrors RecordRegisteredBot. No-op when the code is absent — safe to call
+// from a delete handler that might retry, or from Destroy paths where the
+// channel never successfully registered.
+func (p *Portal) ForgetRegisteredBot(ctx context.Context, code string) error {
+	if code == "" {
+		return errors.New("bot code required")
+	}
+	p.mu.Lock()
+	if p.state.RegisteredBots == nil {
+		p.mu.Unlock()
+		return nil
+	}
+	if _, ok := p.state.RegisteredBots[code]; !ok {
+		p.mu.Unlock()
+		return nil
+	}
+	delete(p.state.RegisteredBots, code)
+	stateCopy := p.state
+	p.mu.Unlock()
+	return p.writeState(ctx, stateCopy)
+}
+
 // LookupMediaFolder returns the cached disk folder id for a bot_code.
 // Empty string means “no folder cached yet”.
 func (p *Portal) LookupMediaFolder(code string) string {

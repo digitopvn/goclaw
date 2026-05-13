@@ -209,6 +209,53 @@ func (c *Channel) Start(ctx context.Context) error {
 	return nil
 }
 
+// Destroy releases external Bitrix24 resources (the imbot.register'd bot)
+// and then calls Stop() for local cleanup. Called by the delete handler
+// BEFORE the channel_instance row is removed from DB so the bot doesn't
+// linger as a zombie on the Bitrix24 portal.
+//
+// Best-effort: Bitrix-side or persist failures are logged but do not return
+// an error. Blocking the DB delete on a permanently-dead portal would leave
+// the row stuck forever; the operator can audit the warn log if cleanup
+// needs to be done manually.
+//
+// Safe when Start() never completed — botID == 0 or portal == nil short-
+// circuit the network/persist work and the call falls through to Stop()
+// for whatever local state was set up.
+//
+// Idempotent: a second Destroy after a successful one will see botID == 0
+// (Stop clears it), trigger isBotNotFoundError on the unregister, and
+// no-op on ForgetRegisteredBot.
+func (c *Channel) Destroy(ctx context.Context) error {
+	c.startMu.Lock()
+	botID := c.botID
+	portal := c.portal
+	code := c.cfg.BotCode
+	c.startMu.Unlock()
+
+	// Step 1: tell Bitrix24 the bot is gone.
+	if botID > 0 {
+		if err := c.unregisterBot(ctx, botID); err != nil {
+			slog.Warn("bitrix24 destroy: imbot.unregister failed — proceeding with local cleanup",
+				"portal", c.cfg.Portal, "bot_code", code, "bot_id", botID, "err", err)
+		}
+	}
+
+	// Step 2: clear the persisted bot_code → bot_id mapping so a future
+	// channel with the same bot_code re-registers fresh instead of trying
+	// to reuse a (now-deleted) bot_id.
+	if portal != nil && code != "" {
+		if err := portal.ForgetRegisteredBot(ctx, code); err != nil {
+			slog.Warn("bitrix24 destroy: ForgetRegisteredBot failed",
+				"portal", c.cfg.Portal, "bot_code", code, "err", err)
+		}
+	}
+
+	// Step 3: local teardown. Stop() also removes the bot from the
+	// Router's dispatch map (router.UnregisterBot) — no extra call needed.
+	return c.Stop(ctx)
+}
+
 // Stop unwires the channel from the Router and closes the stop channel.
 // Does NOT tear down the portal — other bots on the same portal keep it
 // alive, and the Router's EnsurePortalRunning is idempotent on next Start().
