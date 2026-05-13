@@ -21,6 +21,16 @@ import (
 // server is usable again within one minute.
 const mcpProvisionDebounceTTL = 60 * time.Second
 
+// mcpCredsRefreshWindow is the lead time at which we proactively refresh user
+// credentials. If the cached BITRIX_EXPIRES_AT is within this window of now,
+// the next webhook event triggers an auto-onboard refresh — preventing the
+// upcoming tool call from racing a stale token.
+//
+// Sized 5x typical Bitrix REST round-trip latency. The Bitrix-issued
+// access_token TTL is 1h (3600s), so 5 min = 8% of lifetime — refresh load
+// stays manageable on busy portals.
+const mcpCredsRefreshWindow = 5 * time.Minute
+
 // mcpDebounceKey keys the in-memory rate-limit map. ServerID + UserID is
 // sufficient — different Bitrix portals route to different channel instances
 // with different debounce maps, so cross-portal collision isn't possible.
@@ -132,22 +142,67 @@ func (c *Channel) provisionIfMissing(ctx context.Context, userID string, auth Ev
 	// Skip #1: Open Channel bot. No per-user credentials for transient
 	// customers — see type docstring.
 	if c.IsOpenChannelBot() {
+		slog.Debug("bitrix24 mcp: provision skip open channel", "channel", c.Name(), "user_id", userID)
 		return ErrProvisionSkippedOpenChannel
 	}
 
 	// Skip #2: provisioning disabled at startup. Channel operates without
 	// MCP — downstream agent loop sees no creds and skips MCP tools.
 	if c.mcpStore == nil || c.mcpClient == nil || c.mcpServerID == uuid.Nil {
+		slog.Debug("bitrix24 mcp: provision skip disabled", "channel", c.Name(), "user_id", userID)
 		return ErrProvisionDisabled
 	}
 
-	// Skip #3: already have creds. Provisioner is a LAZY-MINT path, not
-	// a refresh path — credential refresh/rotation is a separate problem
-	// (Phase E). Cheap check before the debounce so warm users never
-	// touch the mutex.
+	// Skip #3: already have creds AND token is far from expiry. Provisioner
+	// is primarily a LAZY-MINT path, but it also refreshes opportunistically:
+	//
+	//   - Token expired → must refresh (loop-side 401 purge would otherwise
+	//     leave the user stranded until next event)
+	//   - Token expiring within mcpCredsRefreshWindow → refresh proactively
+	//     so the upcoming tool call doesn't hit a freshly stale token.
+	//   - Token warm (> refresh window remaining) → skip; reuse cached creds
+	//     to avoid hammering mcp-bx-syn.
+	//
+	// The refresh window must be > the longest expected tool-call latency so
+	// proactive refresh lands before the call. 5 min is conservative given
+	// typical Bitrix REST round-trips (sub-second to a few seconds).
 	existing, err := c.mcpStore.GetUserCredentials(ctx, c.mcpServerID, userID)
 	if err == nil && existing != nil && existing.APIKey != "" {
-		return nil
+		expiresAtRaw := strings.TrimSpace(existing.Env["BITRIX_EXPIRES_AT"])
+		if expiresAtRaw == "" {
+			// Legacy creds without expiry metadata are STALE-unknown. mcp-bx-syn
+			// will reject when its stored access_token expires (1h TTL) → loop-side
+			// 401 purge fires, breaking the in-flight conversation. Refresh once
+			// to write BITRIX_EXPIRES_AT so subsequent events follow the warm-skip
+			// path. The "1 HTTP per first-event-after-deploy" cost self-heals
+			// after one refresh writes the meta column.
+			slog.Info("bitrix24 mcp: refreshing legacy credentials (no expiry meta)",
+				"channel", c.Name(), "user_id", userID)
+			// fall through to debounce + refresh below
+		} else {
+			if expiresAt, parseErr := time.Parse(time.RFC3339, expiresAtRaw); parseErr == nil {
+				now := time.Now().UTC()
+				timeLeft := expiresAt.Sub(now)
+				if timeLeft > mcpCredsRefreshWindow {
+					slog.Debug("bitrix24 mcp: provision skip warm credentials",
+						"channel", c.Name(), "user_id", userID, "expires_at", expiresAtRaw,
+						"time_left", timeLeft.String())
+					return nil
+				}
+				if timeLeft > 0 {
+					slog.Info("bitrix24 mcp: refreshing near-expiry user credentials",
+						"channel", c.Name(),
+						"user_id", userID,
+						"expires_at", expiresAtRaw,
+						"time_left", timeLeft.String())
+				} else {
+					slog.Info("bitrix24 mcp: refreshing expired user credentials",
+						"channel", c.Name(),
+						"user_id", userID,
+						"expired_at", expiresAtRaw)
+				}
+			}
+		}
 	}
 
 	// Skip #4: debounce. Bitrix24 retries webhooks aggressively on 5xx,
@@ -155,6 +210,7 @@ func (c *Channel) provisionIfMissing(ctx context.Context, userID string, auth Ev
 	// without this guard. TTL = 60s covers the retry burst window and
 	// the typical "MCP server blip" recovery time.
 	if c.isMCPProvisionDebounced(c.mcpServerID, userID) {
+		slog.Warn("bitrix24 mcp: provision debounced", "channel", c.Name(), "user_id", userID)
 		return ErrProvisionDebounced
 	}
 	c.markMCPProvisionDebounced(c.mcpServerID, userID)
@@ -178,6 +234,7 @@ func (c *Channel) provisionIfMissing(ctx context.Context, userID string, auth Ev
 		// server should enrich via user.get if it needs a label.
 	})
 	if err != nil {
+		slog.Warn("bitrix24 mcp: auto-onboard failed", "channel", c.Name(), "user_id", userID, "err", err)
 		return fmt.Errorf("bitrix24 mcp: auto-onboard failed: %w", err)
 	}
 

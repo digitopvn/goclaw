@@ -2,8 +2,11 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -14,6 +17,21 @@ import (
 	"github.com/nextlevelbuilder/goclaw/internal/store"
 	"github.com/nextlevelbuilder/goclaw/internal/tools"
 )
+
+// argMapKeys returns sorted top-level keys of a tool argument map for log
+// correlation. Keys only — values may contain PII (per-tool semantics).
+// Returns empty string for nil/empty maps to keep log line tidy.
+func argMapKeys(m map[string]any) string {
+	if len(m) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return strings.Join(keys, ",")
+}
 
 // BridgeTool adapts an MCP tool into the tools.Tool interface.
 // It delegates Execute calls to the MCP server via the client.
@@ -138,6 +156,20 @@ func (t *BridgeTool) OriginalName() string { return t.toolName }
 // IsConnected returns whether the underlying MCP server connection is healthy.
 func (t *BridgeTool) IsConnected() bool { return t.connected.Load() }
 
+// isUnauthorizedErr detects HTTP 401 responses bubbled up through the mcp-go
+// streamable-http transport. The transport surfaces HTTP errors as wrapped
+// Go errors with the status code in the message; check both common phrasings.
+func isUnauthorizedErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "unauthorized (401)") ||
+		strings.Contains(msg, "401 unauthorized") ||
+		strings.Contains(msg, "status code 401") ||
+		strings.Contains(msg, "http 401")
+}
+
 func (t *BridgeTool) Execute(ctx context.Context, args map[string]any) *tools.Result {
 	// Recheck grant before execution — defense against revoked grants
 	if t.grantChecker != nil {
@@ -169,18 +201,57 @@ func (t *BridgeTool) Execute(ctx context.Context, args map[string]any) *tools.Re
 	req.Params.Name = t.toolName
 	req.Params.Arguments = cleanedArgs
 
+	// C5 (Phase 4): structured outbound log so operators can correlate tool
+	// calls with mcp-bx-syn audit logs / Bitrix REST traces. user_id comes
+	// from ctx (resolved by agent loop via resolveActorUserID). Args size
+	// only — never log args content (may contain PII per tool).
+	callStart := time.Now()
+	slog.Debug("mcp.tool.call.outbound",
+		"server", t.serverName,
+		"tool", t.registeredName,
+		"user_id", store.UserIDFromContext(ctx),
+		"agent_id", store.AgentIDFromContext(ctx),
+		"args_keys", argMapKeys(cleanedArgs),
+	)
+
 	result, err := client.CallTool(callCtx, req)
+	latencyMs := time.Since(callStart).Milliseconds()
 	if err != nil {
 		if errors.Is(callCtx.Err(), context.DeadlineExceeded) {
 			return tools.ErrorResult(fmt.Sprintf("MCP tool %q timeout after %ds", t.registeredName, t.timeoutSec))
 		}
+		// C4 fix: detect 401 Unauthorized from MCP transport. Flip connected=false
+		// so the next user event triggers getUserMCPTools to clear the cache and
+		// re-acquire — which (in loop_mcp_user.go) detects the same 401 against
+		// the fresh pool and purges DeleteUserCredentials → next-next event auto
+		// re-onboards via provisioner. Without this flip, BridgeTool would keep
+		// hitting the revoked api_key on every retry until pool idle-evicts (15m).
+		if isUnauthorizedErr(err) {
+			t.connected.Store(false)
+			slog.Warn("mcp.tool.call.auth_expired",
+				"server", t.serverName, "tool", t.registeredName,
+				"user_id", store.UserIDFromContext(ctx),
+				"latency_ms", latencyMs)
+			return tools.ErrorResult(fmt.Sprintf("MCP tool %q: credential expired, please retry", t.registeredName))
+		}
+		slog.Warn("mcp.tool.call.error",
+			"server", t.serverName, "tool", t.registeredName,
+			"user_id", store.UserIDFromContext(ctx),
+			"latency_ms", latencyMs, "error", err.Error())
 		return tools.ErrorResult(fmt.Sprintf("MCP tool %q error: %v", t.registeredName, err))
 	}
+	slog.Debug("mcp.tool.call.done",
+		"server", t.serverName, "tool", t.registeredName,
+		"user_id", store.UserIDFromContext(ctx),
+		"latency_ms", latencyMs, "is_error", result.IsError)
 
 	text := extractTextContent(result)
 
 	if result.IsError {
 		return tools.ErrorResult(text)
+	}
+	if msg, ok := detectLogicalErrorPayload(text); ok {
+		return tools.ErrorResult(msg)
 	}
 
 	// Wrap MCP tool results as external/untrusted content to prevent prompt injection.
@@ -279,6 +350,25 @@ func isPlaceholderValue(s string) bool {
 		return true
 	}
 	return false
+}
+
+// detectLogicalErrorPayload upgrades successful transport responses that contain
+// tool-level JSON errors (common pattern: {"error":"..."}).
+func detectLogicalErrorPayload(text string) (string, bool) {
+	raw := strings.TrimSpace(text)
+	if raw == "" || (!strings.HasPrefix(raw, "{") && !strings.HasPrefix(raw, "[")) {
+		return "", false
+	}
+	var m map[string]any
+	if err := json.Unmarshal([]byte(raw), &m); err != nil {
+		return "", false
+	}
+	if v, ok := m["error"]; ok {
+		if s := strings.TrimSpace(fmt.Sprint(v)); s != "" && s != "<nil>" {
+			return s, true
+		}
+	}
+	return "", false
 }
 
 // isAllCapsPlaceholder detects LLM-generated all-caps placeholder strings

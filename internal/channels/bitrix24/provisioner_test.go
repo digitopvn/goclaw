@@ -253,8 +253,15 @@ func TestProvisionIfMissing_ExistingCreds_NoHTTP(t *testing.T) {
 	bc := newProvisionerTestChannel(t, mcpStore, srv.URL, "B")
 
 	// Preload credentials for user 42 before the first provision attempt.
+	// Warm path requires BITRIX_EXPIRES_AT meta (added 260512 C3 fix). Legacy
+	// rows without expiry meta now actively refresh on next event to write the
+	// meta column — see TestProvisionIfMissing_LegacyNoExpiry_RefreshHTTP.
+	warmExpiry := time.Now().UTC().Add(30 * time.Minute).Format(time.RFC3339)
 	mcpStore.userCreds[credKey(bc.mcpServerID, "42")] = store.MCPUserCredentials{
 		APIKey: "prior-key",
+		Env: map[string]string{
+			"BITRIX_EXPIRES_AT": warmExpiry,
+		},
 	}
 
 	if err := bc.provisionIfMissing(context.Background(), "42", validAuth()); err != nil {
@@ -265,6 +272,108 @@ func TestProvisionIfMissing_ExistingCreds_NoHTTP(t *testing.T) {
 	}
 	if mcpStore.setUserCallCount != 0 {
 		t.Errorf("warm path must not re-persist; got %d SetUserCredentials calls", mcpStore.setUserCallCount)
+	}
+}
+
+// TestProvisionIfMissing_NearExpiry_RefreshHTTP locks the C3 (Phase 3) fix:
+// when cached BITRIX_EXPIRES_AT is within mcpCredsRefreshWindow (5 min) of
+// now, the provisioner MUST refresh proactively — preventing the upcoming
+// tool call from racing a stale token. Without this, a user chatting just
+// before expiry would hit 401 on the tool call and need a follow-up message
+// to recover.
+func TestProvisionIfMissing_NearExpiry_RefreshHTTP(t *testing.T) {
+	httpCalls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		httpCalls++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"api_key":"refreshed-key","user_id":"u-42","tenant_id":"t-1","created":false}`))
+	}))
+	defer srv.Close()
+
+	mcpStore := newFakeMCPStore()
+	bc := newProvisionerTestChannel(t, mcpStore, srv.URL, "B")
+
+	// Preload creds with expiry 2 minutes in the future (inside refresh window).
+	nearExpiry := time.Now().UTC().Add(2 * time.Minute).Format(time.RFC3339)
+	mcpStore.userCreds[credKey(bc.mcpServerID, "42")] = store.MCPUserCredentials{
+		APIKey: "stale-key",
+		Env: map[string]string{
+			"BITRIX_EXPIRES_AT": nearExpiry,
+		},
+	}
+
+	if err := bc.provisionIfMissing(context.Background(), "42", validAuth()); err != nil {
+		t.Fatalf("err = %v; want nil", err)
+	}
+	if httpCalls != 1 {
+		t.Errorf("near-expiry path must refresh once; got %d HTTP calls", httpCalls)
+	}
+	if mcpStore.setUserCallCount != 1 {
+		t.Errorf("near-expiry path must persist refreshed creds; got %d SetUserCredentials calls", mcpStore.setUserCallCount)
+	}
+}
+
+// TestProvisionIfMissing_LegacyNoExpiry_RefreshHTTP locks the 260512 fix:
+// rows without BITRIX_EXPIRES_AT meta (legacy onboards before C3) MUST be
+// refreshed once to write expiry meta. Without this, mcp-bx-syn rejects with
+// 401 when its stored token expires (1h TTL after onboard) → loop-side
+// purge breaks the in-flight conversation (observed user 1 group chat 2150).
+func TestProvisionIfMissing_LegacyNoExpiry_RefreshHTTP(t *testing.T) {
+	httpCalls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		httpCalls++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"api_key":"refreshed-key","user_id":"u-42","tenant_id":"t-1","created":false}`))
+	}))
+	defer srv.Close()
+
+	mcpStore := newFakeMCPStore()
+	bc := newProvisionerTestChannel(t, mcpStore, srv.URL, "B")
+
+	// Legacy row: APIKey set, NO BITRIX_EXPIRES_AT.
+	mcpStore.userCreds[credKey(bc.mcpServerID, "42")] = store.MCPUserCredentials{
+		APIKey: "legacy-key",
+	}
+
+	if err := bc.provisionIfMissing(context.Background(), "42", validAuth()); err != nil {
+		t.Fatalf("err = %v; want nil", err)
+	}
+	if httpCalls != 1 {
+		t.Errorf("legacy path must refresh once; got %d HTTP calls", httpCalls)
+	}
+	if mcpStore.setUserCallCount != 1 {
+		t.Errorf("legacy path must persist refreshed creds; got %d SetUserCredentials", mcpStore.setUserCallCount)
+	}
+}
+
+// TestProvisionIfMissing_WarmExpiry_NoHTTP locks the inverse of C3: when
+// cached expiry is comfortably beyond the refresh window (e.g. 30 min away),
+// provisioner MUST skip HTTP. Refreshing on every event when token is still
+// fresh would burn 1 HTTP per message and DDoS mcp-bx-syn.
+func TestProvisionIfMissing_WarmExpiry_NoHTTP(t *testing.T) {
+	httpCalls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		httpCalls++
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	mcpStore := newFakeMCPStore()
+	bc := newProvisionerTestChannel(t, mcpStore, srv.URL, "B")
+
+	warmExpiry := time.Now().UTC().Add(30 * time.Minute).Format(time.RFC3339)
+	mcpStore.userCreds[credKey(bc.mcpServerID, "42")] = store.MCPUserCredentials{
+		APIKey: "warm-key",
+		Env: map[string]string{
+			"BITRIX_EXPIRES_AT": warmExpiry,
+		},
+	}
+
+	if err := bc.provisionIfMissing(context.Background(), "42", validAuth()); err != nil {
+		t.Fatalf("err = %v; want nil", err)
+	}
+	if httpCalls != 0 {
+		t.Errorf("warm-expiry path must not call HTTP; got %d HTTP calls", httpCalls)
 	}
 }
 
