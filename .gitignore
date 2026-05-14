@@ -101,3 +101,8 @@ compose.d/*
 *.test
 goclaw-patched-linux-amd64
 ui/web/nginx.staging.conf
+
+# Local scratchpad / one-shot artifacts (never commit)
+**/debug-*.log
+/*.sql
+scripts/docker-patch-*.sql
