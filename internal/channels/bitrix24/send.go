@@ -124,6 +124,8 @@ func (c *Channel) sendChunk(ctx context.Context, chatID, chunk string) error {
 		return nil
 	}
 	if !isRateLimitErr(err) {
+		slog.Warn("bitrix24: imbot.message.add failed",
+			"chat_id", chatID, "bot_id", botID, "err", err)
 		return err
 	}
 

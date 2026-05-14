@@ -25,6 +25,12 @@ const (
 	WebhookPathPrefix = "/bitrix24/"
 	installPath       = "/bitrix24/install"
 	eventsPath        = "/bitrix24/events"
+	// handlerPath is the "Application URL" / "Application settings handler"
+	// registered with partners.bitrix24.com. Bitrix24 GET-pings it during
+	// app registration to verify reachability (must return 2xx) and later
+	// iframe-loads it (with POST tokens) when a user opens the app inside
+	// their portal. See handleAppPage for behavior.
+	handlerPath = "/bitrix24/handler"
 )
 
 // BotDispatcher is the contract Phase 03 Channel implements so Router can
@@ -281,6 +287,8 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		r.handleInstall(w, req)
 	case eventsPath:
 		r.handleEvent(w, req)
+	case handlerPath:
+		r.handleAppPage(w, req)
 	default:
 		http.NotFound(w, req)
 	}
