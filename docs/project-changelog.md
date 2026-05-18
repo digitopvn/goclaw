@@ -18,6 +18,15 @@ Significant changes, features, and fixes in reverse chronological order.
 
 ---
 
+### Deployment: Codex CLI service-user auth
+
+**Fixes**
+
+- Fixed agent-controlled Codex CLI auth on the VPS by ensuring the `goclaw` systemd service user has the ChatGPT login auth file under `/var/lib/goclaw/.codex/auth.json`.
+- Documented the required service-user check: `sudo -u goclaw -H codex login status`.
+
+---
+
 ### Packages: npm workspace protocol fallback
 
 **Fixes**
