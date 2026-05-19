@@ -151,6 +151,28 @@ func TestFsBridgeResolvePathRejectsWorkspaceEscapes(t *testing.T) {
 	}
 }
 
+func TestFsBridgePathWithinUsesPathBoundaries(t *testing.T) {
+	tests := []struct {
+		name   string
+		root   string
+		target string
+		want   bool
+	}{
+		{name: "root itself", root: "/workspace/agent-a", target: "/workspace/agent-a", want: true},
+		{name: "child path", root: "/workspace/agent-a", target: "/workspace/agent-a/file.txt", want: true},
+		{name: "sibling with shared prefix", root: "/workspace/agent-a", target: "/workspace/agent-a-b/file.txt", want: false},
+		{name: "parent path", root: "/workspace/agent-a", target: "/workspace", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := fsBridgePathWithin(tt.root, tt.target); got != tt.want {
+				t.Fatalf("fsBridgePathWithin(%q, %q) = %v, want %v", tt.root, tt.target, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestFsBridgeWriteFileCommandPreservesOverwriteTruncation(t *testing.T) {
 	args := fsBridgeWriteDDArgs("/workspace/file.txt", false)
 	for _, arg := range args {

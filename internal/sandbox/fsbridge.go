@@ -37,8 +37,12 @@ func NewFsBridge(containerID, workdir string) *FsBridge {
 // Matching TS FsBridge.readFile().
 func (b *FsBridge) ReadFile(ctx context.Context, path string) (string, error) {
 	resolved := b.resolvePath(path)
+	realPath, err := b.resolveExistingPath(ctx, resolved)
+	if err != nil {
+		return "", err
+	}
 
-	stdout, stderr, exitCode, err := b.dockerExec(ctx, nil, "cat", "--", resolved)
+	stdout, stderr, exitCode, err := b.dockerExec(ctx, nil, "cat", "--", realPath)
 	if err != nil {
 		return "", fmt.Errorf("fsbridge read: %w", err)
 	}
@@ -55,10 +59,25 @@ func (b *FsBridge) ReadFile(ctx context.Context, path string) (string, error) {
 func (b *FsBridge) WriteFile(ctx context.Context, path, content string, appendMode bool) error {
 	resolved := b.resolvePath(path)
 
-	// Create parent directory
+	if err := b.validateExistingTargetIfPresent(ctx, resolved); err != nil {
+		return err
+	}
+
 	dir := resolved[:strings.LastIndex(resolved, "/")]
 	if dir != "" && dir != "/" {
-		_, _, _, _ = b.dockerExec(ctx, nil, "mkdir", "-p", dir)
+		if err := b.validateParentBeforeCreate(ctx, dir); err != nil {
+			return err
+		}
+		_, stderr, exitCode, err := b.dockerExec(ctx, nil, "mkdir", "-p", "--", dir)
+		if err != nil {
+			return fmt.Errorf("fsbridge mkdir: %w", err)
+		}
+		if exitCode != 0 {
+			return fmt.Errorf("mkdir failed: %s", strings.TrimSpace(stderr))
+		}
+		if err := b.validateParentBeforeCreate(ctx, dir); err != nil {
+			return err
+		}
 	}
 
 	ddArgs := fsBridgeWriteDDArgs(resolved, appendMode)
@@ -85,9 +104,13 @@ func fsBridgeWriteDDArgs(resolved string, appendMode bool) []string {
 // Matching TS FsBridge.readdir().
 func (b *FsBridge) ListDir(ctx context.Context, path string) (string, error) {
 	resolved := b.resolvePath(path)
+	realPath, err := b.resolveExistingPath(ctx, resolved)
+	if err != nil {
+		return "", err
+	}
 
 	// Use ls -la for detailed listing
-	stdout, stderr, exitCode, err := b.dockerExec(ctx, nil, "ls", "-la", "--", resolved)
+	stdout, stderr, exitCode, err := b.dockerExec(ctx, nil, "ls", "-la", "--", realPath)
 	if err != nil {
 		return "", fmt.Errorf("fsbridge list: %w", err)
 	}
@@ -101,8 +124,12 @@ func (b *FsBridge) ListDir(ctx context.Context, path string) (string, error) {
 // Stat checks if a path exists and returns basic info.
 func (b *FsBridge) Stat(ctx context.Context, path string) (string, error) {
 	resolved := b.resolvePath(path)
+	realPath, err := b.resolveExistingPath(ctx, resolved)
+	if err != nil {
+		return "", err
+	}
 
-	stdout, stderr, exitCode, err := b.dockerExec(ctx, nil, "stat", "--", resolved)
+	stdout, stderr, exitCode, err := b.dockerExec(ctx, nil, "stat", "--", realPath)
 	if err != nil {
 		return "", fmt.Errorf("fsbridge stat: %w", err)
 	}
@@ -130,6 +157,82 @@ func (b *FsBridge) resolvePath(path string) string {
 		return cleaned
 	}
 	return workdir
+}
+
+func fsBridgePathWithin(root, target string) bool {
+	root = filepath.Clean(root)
+	target = filepath.Clean(target)
+	if target == root {
+		return true
+	}
+	return strings.HasPrefix(target, root+"/")
+}
+
+func (b *FsBridge) containerRealPath(ctx context.Context, path string) (string, error) {
+	stdout, stderr, exitCode, err := b.dockerExec(ctx, nil, "realpath", "-e", "--", path)
+	if err != nil {
+		return "", fmt.Errorf("fsbridge realpath: %w", err)
+	}
+	if exitCode != 0 {
+		return "", fmt.Errorf("realpath failed: %s", strings.TrimSpace(stderr))
+	}
+	return strings.TrimSpace(stdout), nil
+}
+
+func (b *FsBridge) containerRealWorkdir(ctx context.Context) (string, error) {
+	return b.containerRealPath(ctx, filepath.Clean(b.workdir))
+}
+
+func (b *FsBridge) resolveExistingPath(ctx context.Context, resolved string) (string, error) {
+	realWorkdir, err := b.containerRealWorkdir(ctx)
+	if err != nil {
+		return "", err
+	}
+	realPath, err := b.containerRealPath(ctx, resolved)
+	if err != nil {
+		return "", err
+	}
+	if !fsBridgePathWithin(realWorkdir, realPath) {
+		return "", fmt.Errorf("path escapes sandbox workdir")
+	}
+	return realPath, nil
+}
+
+func (b *FsBridge) validateExistingTargetIfPresent(ctx context.Context, resolved string) error {
+	realWorkdir, err := b.containerRealWorkdir(ctx)
+	if err != nil {
+		return err
+	}
+	realPath, err := b.containerRealPath(ctx, resolved)
+	if err != nil {
+		return nil
+	}
+	if !fsBridgePathWithin(realWorkdir, realPath) {
+		return fmt.Errorf("path escapes sandbox workdir")
+	}
+	return nil
+}
+
+func (b *FsBridge) validateParentBeforeCreate(ctx context.Context, dir string) error {
+	realWorkdir, err := b.containerRealWorkdir(ctx)
+	if err != nil {
+		return err
+	}
+	current := filepath.Clean(dir)
+	for {
+		realParent, err := b.containerRealPath(ctx, current)
+		if err == nil {
+			if !fsBridgePathWithin(realWorkdir, realParent) {
+				return fmt.Errorf("path parent escapes sandbox workdir")
+			}
+			return nil
+		}
+		next := filepath.Dir(current)
+		if next == current {
+			return fmt.Errorf("path parent does not exist inside sandbox workdir")
+		}
+		current = next
+	}
 }
 
 // dockerExec runs a command inside the container and returns stdout, stderr, exit code.

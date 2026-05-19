@@ -13,6 +13,8 @@ import (
 	"strings"
 )
 
+const maxWebhookBodyBytes = 1 << 20
+
 // --- Event types (replacing larkim.P2MessageReceiveV1) ---
 
 // MessageEvent is the parsed structure of a Feishu im.message.receive_v1 event.
@@ -97,9 +99,13 @@ func NewWebhookHandler(verificationToken, encryptKey string, onMessage func(even
 			return
 		}
 
-		body, err := io.ReadAll(r.Body)
+		body, err := io.ReadAll(io.LimitReader(r.Body, maxWebhookBodyBytes+1))
 		if err != nil {
 			http.Error(w, "read body failed", http.StatusBadRequest)
+			return
+		}
+		if len(body) > maxWebhookBodyBytes {
+			http.Error(w, "body too large", http.StatusRequestEntityTooLarge)
 			return
 		}
 

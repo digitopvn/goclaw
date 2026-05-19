@@ -710,6 +710,32 @@ func TestWebhookRouterSignatureMismatchDoesNotDispatch(t *testing.T) {
 	}
 }
 
+func TestWebhookRouterDuplicateSignedBodyDoesNotDispatchTwice(t *testing.T) {
+	cfg := pancakeInstanceConfig{}
+	cfg.Features.InboxReply = true
+	router, ch, msgBus := newTestRouter(t, cfg)
+
+	body := buildWebhookBody("page-test", "conv-1", "INBOX", "user-1", "", "inbox msg", "")
+	for i := 0; i < 2; i++ {
+		req := httptest.NewRequest(http.MethodPost, webhookPath, strings.NewReader(body))
+		signTestPancakeRequest(req, body, ch.webhookSecret)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("request %d status = %d, want 200", i+1, w.Code)
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	if _, ok := msgBus.ConsumeInbound(ctx); !ok {
+		t.Fatal("expected first signed webhook to dispatch")
+	}
+	if _, ok := msgBus.ConsumeInbound(ctx); ok {
+		t.Fatal("expected duplicate signed webhook body to be skipped")
+	}
+}
+
 func TestWebhookRouterSkipsUnknownType(t *testing.T) {
 	cfg := pancakeInstanceConfig{}
 	cfg.Features.CommentReply = true

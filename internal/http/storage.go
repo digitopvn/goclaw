@@ -120,6 +120,75 @@ func (h *StorageHandler) isHiddenPath(r *http.Request, rel string) bool {
 	return strings.EqualFold(topLevelPath(rel), "tenants")
 }
 
+func pathWithinDir(path, dir string) bool {
+	rel, err := filepath.Rel(dir, path)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
+}
+
+func evalSymlinkOrClean(path string) string {
+	realPath, err := filepath.EvalSymlinks(path)
+	if err == nil {
+		return filepath.Clean(realPath)
+	}
+	return filepath.Clean(path)
+}
+
+func (h *StorageHandler) isHiddenRealPath(r *http.Request, base, realPath string) bool {
+	if store.TenantIDFromContext(r.Context()) != store.MasterTenantID {
+		return false
+	}
+	realTenantRoot, err := filepath.EvalSymlinks(filepath.Join(base, "tenants"))
+	if err != nil {
+		return false
+	}
+	return pathWithinDir(filepath.Clean(realPath), filepath.Clean(realTenantRoot))
+}
+
+func (h *StorageHandler) validateExistingStoragePath(r *http.Request, base, absPath string) bool {
+	realBase := evalSymlinkOrClean(base)
+	realPath, err := filepath.EvalSymlinks(absPath)
+	if err != nil {
+		return false
+	}
+	realPath = filepath.Clean(realPath)
+	if !pathWithinDir(realPath, realBase) {
+		slog.Warn("security.storage_symlink_escape", "resolved", realPath, "base", realBase)
+		return false
+	}
+	if h.isHiddenRealPath(r, base, realPath) {
+		slog.Warn("security.storage_hidden_symlink_path", "resolved", realPath, "base", realBase)
+		return false
+	}
+	return true
+}
+
+func (h *StorageHandler) validateStorageParent(r *http.Request, base, parent string) bool {
+	realBase := evalSymlinkOrClean(base)
+	current := filepath.Clean(parent)
+	for {
+		if realParent, err := filepath.EvalSymlinks(current); err == nil {
+			realParent = filepath.Clean(realParent)
+			if !pathWithinDir(realParent, realBase) {
+				slog.Warn("security.storage_parent_escape", "resolved", realParent, "base", realBase)
+				return false
+			}
+			if h.isHiddenRealPath(r, base, realParent) {
+				slog.Warn("security.storage_hidden_parent", "resolved", realParent, "base", realBase)
+				return false
+			}
+			return true
+		}
+		next := filepath.Dir(current)
+		if next == current {
+			return false
+		}
+		current = next
+	}
+}
+
 // handleList lists files and directories under ~/.goclaw/ with depth limiting.
 // Query params:
 //   - ?path=  scopes the listing to a subtree
@@ -367,6 +436,10 @@ func (h *StorageHandler) handleRead(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": i18n.T(locale, i18n.MsgInvalidPath)})
 		return
 	}
+	if !h.validateExistingStoragePath(r, readBase, absPath) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": i18n.T(locale, i18n.MsgFileNotFound)})
+		return
+	}
 
 	data, err := os.ReadFile(absPath)
 	if err != nil {
@@ -428,6 +501,10 @@ func (h *StorageHandler) handleDelete(w http.ResponseWriter, r *http.Request) {
 	// Verify path exists
 	info, err := os.Lstat(absPath)
 	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": i18n.T(locale, i18n.MsgNotFound, "path", relPath)})
+		return
+	}
+	if !h.validateExistingStoragePath(r, delBase, absPath) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": i18n.T(locale, i18n.MsgNotFound, "path", relPath)})
 		return
 	}
@@ -512,41 +589,46 @@ func (h *StorageHandler) handleUpload(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if !h.validateStorageParent(r, base, targetDir) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": i18n.T(locale, i18n.MsgInvalidPath)})
+		return
+	}
 	if err := os.MkdirAll(targetDir, 0750); err != nil {
 		slog.Error("storage.upload_mkdir_failed", "dir", targetDir, "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": i18n.T(locale, i18n.MsgInternalError, "failed to create directory")})
 		return
 	}
-
-	diskPath := filepath.Join(targetDir, origName)
-
-	// Symlink escape check on resolved path.
-	realTarget, _ := filepath.EvalSymlinks(targetDir)
-	if realTarget == "" {
-		realTarget = targetDir
-	}
-	realBase, _ := filepath.EvalSymlinks(base)
-	if realBase == "" {
-		realBase = base
-	}
-	if !strings.HasPrefix(realTarget, realBase) {
-		slog.Warn("security.storage_upload_symlink_escape", "target", realTarget, "base", realBase)
+	if !h.validateStorageParent(r, base, targetDir) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": i18n.T(locale, i18n.MsgInvalidPath)})
 		return
 	}
 
-	// Write file.
-	out, err := os.Create(diskPath)
+	diskPath := filepath.Join(targetDir, origName)
+
+	out, err := os.CreateTemp(targetDir, ".upload-*")
 	if err != nil {
-		slog.Error("storage.upload_create_failed", "path", diskPath, "error", err)
+		slog.Error("storage.upload_create_failed", "dir", targetDir, "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": i18n.T(locale, i18n.MsgInternalError, "failed to save file")})
 		return
 	}
-	defer out.Close()
+	tmpPath := out.Name()
+	defer os.Remove(tmpPath)
 
 	written, err := io.Copy(out, file)
 	if err != nil {
-		os.Remove(diskPath)
+		out.Close()
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": i18n.T(locale, i18n.MsgInternalError, "failed to save file")})
+		return
+	}
+	if err := out.Close(); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": i18n.T(locale, i18n.MsgInternalError, "failed to save file")})
+		return
+	}
+	if !h.validateStorageParent(r, base, targetDir) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": i18n.T(locale, i18n.MsgInvalidPath)})
+		return
+	}
+	if err := os.Rename(tmpPath, diskPath); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": i18n.T(locale, i18n.MsgInternalError, "failed to save file")})
 		return
 	}
@@ -606,12 +688,15 @@ func (h *StorageHandler) handleMove(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": i18n.T(locale, i18n.MsgFileNotFound)})
 		return
 	}
-	baseReal, _ := filepath.EvalSymlinks(base)
-	if baseReal == "" {
-		baseReal = base
-	}
-	if !strings.HasPrefix(srcReal, baseReal+string(filepath.Separator)) {
+	baseReal := evalSymlinkOrClean(base)
+	srcReal = filepath.Clean(srcReal)
+	if !pathWithinDir(srcReal, baseReal) {
 		slog.Warn("security.storage_move_src_escape", "resolved", srcReal, "base", baseReal)
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": i18n.T(locale, i18n.MsgInvalidPath)})
+		return
+	}
+	if h.isHiddenRealPath(r, base, srcReal) {
+		slog.Warn("security.storage_move_hidden_src", "resolved", srcReal, "base", baseReal)
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": i18n.T(locale, i18n.MsgInvalidPath)})
 		return
 	}
@@ -624,18 +709,17 @@ func (h *StorageHandler) handleMove(w http.ResponseWriter, r *http.Request) {
 	}
 	// Ensure destination parent exists.
 	destDir := filepath.Dir(destAbs)
-	destDirReal, _ := filepath.EvalSymlinks(destDir)
-	if destDirReal == "" {
-		destDirReal = destDir
-	}
-	if !strings.HasPrefix(destDirReal+string(filepath.Separator), baseReal+string(filepath.Separator)) {
-		slog.Warn("security.storage_move_dest_escape", "resolved", destDirReal, "base", baseReal)
+	if !h.validateStorageParent(r, base, destDir) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": i18n.T(locale, i18n.MsgInvalidPath)})
 		return
 	}
 	if err := os.MkdirAll(destDir, 0750); err != nil {
 		slog.Error("storage.move_mkdir_failed", "dir", destDir, "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": i18n.T(locale, i18n.MsgInternalError, "failed to create directory")})
+		return
+	}
+	if !h.validateStorageParent(r, base, destDir) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": i18n.T(locale, i18n.MsgInvalidPath)})
 		return
 	}
 

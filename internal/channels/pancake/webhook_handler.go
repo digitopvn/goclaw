@@ -34,6 +34,11 @@ func verifyHMAC(body []byte, secret, signature string) bool {
 	return hmac.Equal(got, expected)
 }
 
+func webhookReplayKey(body []byte) string {
+	sum := sha256.Sum256(body)
+	return "webhook:" + hex.EncodeToString(sum[:])
+}
+
 // --- Global webhook router for multi-page support ---
 
 // webhookRouter routes incoming Pancake webhook events to the correct channel instance by page_id.
@@ -188,6 +193,11 @@ func (r *webhookRouter) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		slog.Warn("security.pancake_webhook_signature_mismatch",
 			"page_id", pageID,
 			"remote_addr", req.RemoteAddr)
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	if target.isDup(webhookReplayKey(body)) {
+		slog.Info("pancake: duplicate webhook skipped", "page_id", pageID)
 		w.WriteHeader(http.StatusOK)
 		return
 	}

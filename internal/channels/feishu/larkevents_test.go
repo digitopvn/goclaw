@@ -301,6 +301,18 @@ func TestWebhookHandler_InvalidJSON(t *testing.T) {
 	}
 }
 
+func TestWebhookHandler_RejectsOversizedBody(t *testing.T) {
+	h := NewWebhookHandler("", "", func(_ *MessageEvent) {
+		t.Fatal("onMessage must not be called for oversized body")
+	})
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, buildWebhookRequest(strings.Repeat("x", maxWebhookBodyBytes+1)))
+
+	if w.Code != http.StatusRequestEntityTooLarge {
+		t.Errorf("status: got %d, want 413", w.Code)
+	}
+}
+
 // --- Encrypted event ---
 
 func TestWebhookHandler_EncryptedEvent_Decrypted(t *testing.T) {
