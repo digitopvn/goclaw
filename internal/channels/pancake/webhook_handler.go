@@ -176,16 +176,20 @@ func (r *webhookRouter) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// HMAC signature verification — skip if webhook_secret not configured.
-	if target.webhookSecret != "" {
-		sig := req.Header.Get("X-Pancake-Signature")
-		if !verifyHMAC(body, target.webhookSecret, sig) {
-			slog.Warn("security.pancake_webhook_signature_mismatch",
-				"page_id", pageID,
-				"remote_addr", req.RemoteAddr)
-			w.WriteHeader(http.StatusOK)
-			return
-		}
+	if target.webhookSecret == "" {
+		slog.Warn("security.pancake_webhook_missing_secret",
+			"page_id", pageID,
+			"remote_addr", req.RemoteAddr)
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	sig := req.Header.Get("X-Pancake-Signature")
+	if !verifyHMAC(body, target.webhookSecret, sig) {
+		slog.Warn("security.pancake_webhook_signature_mismatch",
+			"page_id", pageID,
+			"remote_addr", req.RemoteAddr)
+		w.WriteHeader(http.StatusOK)
+		return
 	}
 
 	// Build normalized MessagingData from actual Pancake payload.

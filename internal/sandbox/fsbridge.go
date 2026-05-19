@@ -50,7 +50,7 @@ func (b *FsBridge) ReadFile(ctx context.Context, path string) (string, error) {
 }
 
 // WriteFile writes content to a file inside the container, creating directories as needed.
-// When append is true, content is appended (shell >>); otherwise the file is overwritten (shell >).
+// When append is true, content is appended; otherwise the file is overwritten.
 // Matching TS FsBridge.writeFile().
 func (b *FsBridge) WriteFile(ctx context.Context, path, content string, appendMode bool) error {
 	resolved := b.resolvePath(path)
@@ -61,12 +61,8 @@ func (b *FsBridge) WriteFile(ctx context.Context, path, content string, appendMo
 		_, _, _, _ = b.dockerExec(ctx, nil, "mkdir", "-p", dir)
 	}
 
-	redir := ">"
-	if appendMode {
-		redir = ">>"
-	}
-	// Write content via stdin pipe
-	_, stderr, exitCode, err := b.dockerExec(ctx, []byte(content), "sh", "-c", fmt.Sprintf("cat %s %q", redir, resolved))
+	ddArgs := fsBridgeWriteDDArgs(resolved, appendMode)
+	_, stderr, exitCode, err := b.dockerExec(ctx, []byte(content), ddArgs...)
 	if err != nil {
 		return fmt.Errorf("fsbridge write: %w", err)
 	}
@@ -75,6 +71,14 @@ func (b *FsBridge) WriteFile(ctx context.Context, path, content string, appendMo
 	}
 
 	return nil
+}
+
+func fsBridgeWriteDDArgs(resolved string, appendMode bool) []string {
+	args := []string{"dd", "bs=1048576", "status=none", "of=" + resolved}
+	if appendMode {
+		args = append(args, "conv=notrunc", "oflag=append")
+	}
+	return args
 }
 
 // ListDir lists files and directories inside the container.
@@ -112,20 +116,20 @@ func (b *FsBridge) Stat(ctx context.Context, path string) (string, error) {
 // resolvePath resolves a path relative to the container workdir.
 // Validates that absolute paths stay within the workdir (defense in depth).
 func (b *FsBridge) resolvePath(path string) string {
+	workdir := filepath.Clean(b.workdir)
 	if path == "" || path == "." {
-		return b.workdir
+		return workdir
 	}
+	var cleaned string
 	if strings.HasPrefix(path, "/") {
-		// Validate absolute paths stay within workdir (defense in depth,
-		// container is already sandboxed with read-only FS + cap-drop ALL).
-		cleaned := filepath.Clean(path)
-		if cleaned == b.workdir || strings.HasPrefix(cleaned, b.workdir+"/") {
-			return cleaned
-		}
-		return b.workdir // fallback to workdir for escapes
+		cleaned = filepath.Clean(path)
+	} else {
+		cleaned = filepath.Clean(filepath.Join(workdir, path))
 	}
-	// Relative paths: use filepath.Join for proper normalization
-	return filepath.Clean(filepath.Join(b.workdir, path))
+	if cleaned == workdir || strings.HasPrefix(cleaned, workdir+"/") {
+		return cleaned
+	}
+	return workdir
 }
 
 // dockerExec runs a command inside the container and returns stdout, stderr, exit code.

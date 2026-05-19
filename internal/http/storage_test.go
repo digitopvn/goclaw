@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"encoding/json"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -220,4 +221,81 @@ func TestStorageMoveInvalidatesSizeCache(t *testing.T) {
 	if _, ok := handler.sizeCache.Load(sizeBase); ok {
 		t.Fatal("expected size cache entry to be invalidated after move")
 	}
+}
+
+func TestStorageMutationsRequireTenantAdmin(t *testing.T) {
+	setupTestToken(t, "gateway-token")
+	setupTestNoAuthFallback(t, false)
+	ts := newMockTenantStore()
+	tenantID := uuid.New()
+	ts.addTenant(tenantID, "acme")
+	ts.setUserRole(tenantID, "viewer-user", store.TenantRoleViewer)
+	ts.setUserRole(tenantID, "admin-user", store.TenantRoleAdmin)
+	setupTestTenantStore(t, ts)
+
+	baseDir := t.TempDir()
+	writeStorageTestFile(t, filepath.Join(baseDir, "tenants", "acme", "from.txt"), "abc")
+
+	handler := NewStorageHandler(baseDir, ts)
+	mux := http.NewServeMux()
+	handler.RegisterRoutes(mux)
+
+	viewerUpload := newStorageUploadRequest(t, "/v1/storage/files", "file", "x.txt", "data")
+	viewerUpload.Header.Set("Authorization", "Bearer gateway-token")
+	viewerUpload.Header.Set("X-GoClaw-User-Id", "viewer-user")
+	viewerUpload.Header.Set("X-GoClaw-Tenant-Id", "acme")
+	viewerUploadRR := httptest.NewRecorder()
+	mux.ServeHTTP(viewerUploadRR, viewerUpload)
+	if viewerUploadRR.Code != http.StatusForbidden {
+		t.Fatalf("viewer upload status = %d, want 403", viewerUploadRR.Code)
+	}
+
+	viewerMove := httptest.NewRequest(http.MethodPut, "/v1/storage/move?from=from.txt&to=to.txt", nil)
+	viewerMove.Header.Set("Authorization", "Bearer gateway-token")
+	viewerMove.Header.Set("X-GoClaw-User-Id", "viewer-user")
+	viewerMove.Header.Set("X-GoClaw-Tenant-Id", "acme")
+	viewerMoveRR := httptest.NewRecorder()
+	mux.ServeHTTP(viewerMoveRR, viewerMove)
+	if viewerMoveRR.Code != http.StatusForbidden {
+		t.Fatalf("viewer move status = %d, want 403", viewerMoveRR.Code)
+	}
+
+	viewerDelete := httptest.NewRequest(http.MethodDelete, "/v1/storage/files/from.txt", nil)
+	viewerDelete.Header.Set("Authorization", "Bearer gateway-token")
+	viewerDelete.Header.Set("X-GoClaw-User-Id", "viewer-user")
+	viewerDelete.Header.Set("X-GoClaw-Tenant-Id", "acme")
+	viewerDeleteRR := httptest.NewRecorder()
+	mux.ServeHTTP(viewerDeleteRR, viewerDelete)
+	if viewerDeleteRR.Code != http.StatusForbidden {
+		t.Fatalf("viewer delete status = %d, want 403", viewerDeleteRR.Code)
+	}
+
+	adminUpload := newStorageUploadRequest(t, "/v1/storage/files", "file", "admin.txt", "data")
+	adminUpload.Header.Set("Authorization", "Bearer gateway-token")
+	adminUpload.Header.Set("X-GoClaw-User-Id", "admin-user")
+	adminUpload.Header.Set("X-GoClaw-Tenant-Id", "acme")
+	adminUploadRR := httptest.NewRecorder()
+	mux.ServeHTTP(adminUploadRR, adminUpload)
+	if adminUploadRR.Code != http.StatusOK {
+		t.Fatalf("tenant admin upload status = %d, want 200: %s", adminUploadRR.Code, adminUploadRR.Body.String())
+	}
+}
+
+func newStorageUploadRequest(t *testing.T, target, field, filename, content string) *http.Request {
+	t.Helper()
+	var body strings.Builder
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile(field, filename)
+	if err != nil {
+		t.Fatalf("CreateFormFile: %v", err)
+	}
+	if _, err := part.Write([]byte(content)); err != nil {
+		t.Fatalf("write multipart content: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close multipart writer: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, target, strings.NewReader(body.String()))
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	return req
 }

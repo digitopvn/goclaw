@@ -34,28 +34,46 @@ type sizeCacheEntry struct {
 
 type StorageHandler struct {
 	baseDir string // global data dir (resolved absolute path to ~/.goclaw/)
+	tenants store.TenantStore
 
 	// sizeCache caches the total storage size per tenant for 60 minutes.
 	sizeCache sync.Map // tenantBaseDir (string) → *sizeCacheEntry
 }
 
 // NewStorageHandler creates a handler for workspace storage management.
-func NewStorageHandler(baseDir string) *StorageHandler {
-	return &StorageHandler{baseDir: baseDir}
+func NewStorageHandler(baseDir string, tenants ...store.TenantStore) *StorageHandler {
+	h := &StorageHandler{baseDir: baseDir}
+	if len(tenants) > 0 {
+		h.tenants = tenants[0]
+	}
+	return h
 }
 
 // RegisterRoutes registers storage management routes on the given mux.
 func (h *StorageHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/storage/files", h.auth(h.handleList))
 	mux.HandleFunc("GET /v1/storage/files/{path...}", h.auth(h.handleRead))
-	mux.HandleFunc("DELETE /v1/storage/files/{path...}", h.auth(h.handleDelete))
+	mux.HandleFunc("DELETE /v1/storage/files/{path...}", requireAuth(permissions.RoleAdmin, h.requireTenantAdmin(h.handleDelete)))
 	mux.HandleFunc("GET /v1/storage/size", h.auth(h.handleSize))
-	mux.HandleFunc("POST /v1/storage/files", requireAuth(permissions.RoleAdmin, h.handleUpload))
-	mux.HandleFunc("PUT /v1/storage/move", requireAuth(permissions.RoleAdmin, h.handleMove))
+	mux.HandleFunc("POST /v1/storage/files", requireAuth(permissions.RoleAdmin, h.requireTenantAdmin(h.handleUpload)))
+	mux.HandleFunc("PUT /v1/storage/move", requireAuth(permissions.RoleAdmin, h.requireTenantAdmin(h.handleMove)))
 }
 
 func (h *StorageHandler) auth(next http.HandlerFunc) http.HandlerFunc {
 	return requireAuth("", next)
+}
+
+func (h *StorageHandler) requireTenantAdmin(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if pkgGatewayToken == "" && store.TenantIDFromContext(r.Context()) == store.MasterTenantID {
+			next(w, r)
+			return
+		}
+		if !requireTenantAdmin(w, r, h.tenants) {
+			return
+		}
+		next(w, r)
+	}
 }
 
 // tenantBaseDir resolves the data directory scoped to the requesting tenant.
