@@ -240,7 +240,7 @@ func resolveAuthWithBearer(r *http.Request, bearer string) authResult {
 			slog.Warn("security.http_pairing_auth_failed", "sender_id", senderID, "ip", r.RemoteAddr)
 		}
 	}
-	// No auth configured → admin (no token = dev/single-user mode, full access)
+	// No auth configured → admin only when startup allowed local/dev fallback.
 	if pkgGatewayToken == "" && pkgNoAuthFallbackAllowed {
 		return authResult{Role: permissions.RoleAdmin, Authenticated: true, TenantID: store.MasterTenantID}
 	}
