@@ -13,7 +13,8 @@
     "author": "Author",
     "agents": "Agents",
     "owner": "Owner",
-    "visibility": "Visibility",
+    "visibility": "Access mode",
+    "accessMode": "Access mode",
     "status": "Status",
     "actions": "Actions"
   },
@@ -89,7 +90,14 @@
     "noAgentsReason": "No current agents available"
   },
   "visibility": {
-    "clickToCycle": "Click to change visibility"
+    "clickToCycle": "Click to change access mode"
+  },
+  "accessMode": {
+    "private": "Owner only",
+    "internal": "Granted agents",
+    "public": "All tenant agents",
+    "unknown": "Unknown ({{value}})",
+    "clickToCycle": "Click to change access mode"
   },
   "delete": {
     "title": "Delete Skill",
@@ -141,7 +149,8 @@
     "title": "Edit Skill",
     "name": "Name",
     "description": "Description",
-    "visibility": "Visibility",
+    "visibility": "Access mode",
+    "accessMode": "Access mode",
     "tags": "Tags",
     "addTag": "Add tag...",
     "add": "Add",

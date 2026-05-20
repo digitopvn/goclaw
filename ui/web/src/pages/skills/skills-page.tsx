@@ -35,6 +35,7 @@ import {
   serializeSkillsPageState,
   type SkillsPageState,
 } from "./lib/skills-page-state";
+import { getNextSkillAccessMode } from "./lib/skill-access-mode";
 
 const MASTER_TENANT_ID = "0193a5b0-7000-7000-8000-000000000001";
 
@@ -169,11 +170,9 @@ export function SkillsPage() {
     return () => { cancelled = true; };
   }, [skillRef, getSkill]);
 
-  const handleCycleVisibility = async (skill: SkillInfo) => {
+  const handleCycleAccessMode = async (skill: SkillInfo) => {
     if (!skill.id) return;
-    const order = ["private", "internal", "public"] as const;
-    const idx = order.indexOf(skill.visibility as typeof order[number]);
-    await updateSkill(skill.id, { visibility: order[(idx + 1) % order.length] });
+    await updateSkill(skill.id, { visibility: getNextSkillAccessMode(skill.visibility) });
   };
 
   const handleDelete = async () => {
@@ -375,7 +374,7 @@ export function SkillsPage() {
                   <th className="px-4 py-3 text-left font-medium">{t("columns.description")}</th>
                   {tab === "custom" && <th className="px-4 py-3 text-left font-medium">{t("columns.agents")}</th>}
                   <th className="px-4 py-3 text-left font-medium">{t("columns.status")}</th>
-                  {tab === "custom" && <th className="px-4 py-3 text-left font-medium">{t("columns.visibility")}</th>}
+                  {tab === "custom" && <th className="px-4 py-3 text-left font-medium">{t("columns.accessMode")}</th>}
                   <th className="px-4 py-3 text-right font-medium">{t("columns.actions")}</th>
                 </tr>
               </thead>
@@ -394,7 +393,7 @@ export function SkillsPage() {
                     onManageGrants={setGrantsTarget}
                     onDelete={setDeleteTarget}
                     onToggle={handleToggle}
-                    onCycleVisibility={handleCycleVisibility}
+                    onCycleAccessMode={handleCycleAccessMode}
                     onSetTenantConfig={handleSetTenantConfig}
                     onDeleteTenantConfig={handleDeleteTenantConfig}
                   />

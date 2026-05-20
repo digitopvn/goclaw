@@ -7,13 +7,8 @@ import { cn } from "@/lib/utils";
 import { SkillTenantOverride } from "./skill-tenant-override";
 import { SkillAgentChips } from "./skill-agent-chips";
 import { SkillStatusBadges } from "./skill-status-badges";
+import { getSkillAccessModeBadgeVariant, getSkillAccessModeKey } from "./lib/skill-access-mode";
 import type { SkillInfo } from "./hooks/use-skills";
-
-const visibilityColor: Record<string, string> = {
-  public: "default",
-  internal: "secondary",
-  private: "outline",
-};
 
 interface SkillTableRowProps {
   skill: SkillInfo;
@@ -27,20 +22,25 @@ interface SkillTableRowProps {
   onManageGrants: (skill: SkillInfo) => void;
   onDelete: (skill: SkillInfo) => void;
   onToggle: (skill: SkillInfo, enabled: boolean) => void;
-  onCycleVisibility: (skill: SkillInfo) => void;
+  onCycleAccessMode: (skill: SkillInfo) => void;
   onSetTenantConfig: (id: string, enabled: boolean) => Promise<void>;
   onDeleteTenantConfig: (id: string) => Promise<void>;
 }
 
-/** Single row in the skills table with inline status, visibility, and action controls. */
+/** Single row in the skills table with inline status, access mode, and action controls. */
 export function SkillTableRow({
   skill, tab, hasTenantScope, toggling, selected, onToggleSelect,
-  onView, onEdit, onManageGrants, onDelete, onToggle, onCycleVisibility,
+  onView, onEdit, onManageGrants, onDelete, onToggle, onCycleAccessMode,
   onSetTenantConfig, onDeleteTenantConfig,
 }: SkillTableRowProps) {
   const { t } = useTranslation("skills");
   const isArchived = skill.status === "archived";
   const isDisabled = skill.enabled === false;
+  const accessModeKey = getSkillAccessModeKey(skill.visibility);
+  const accessModeLabel = accessModeKey === "unknown"
+    ? t("accessMode.unknown", { value: skill.visibility || t("unknownOwner") })
+    : t(`accessMode.${accessModeKey}`);
+  const accessModeVariant = getSkillAccessModeBadgeVariant(skill.visibility);
 
   return (
     <tr className={cn("border-b last:border-0 hover:bg-muted/30", selected && "bg-primary/5", (isArchived || isDisabled) && "opacity-60")}>
@@ -88,17 +88,17 @@ export function SkillTableRow({
         <td className="px-4 py-3">
           {skill.visibility && (
             skill.id ? (
-              <button type="button" onClick={() => onCycleVisibility(skill)} title={t("visibility.clickToCycle")}>
+              <button type="button" onClick={() => onCycleAccessMode(skill)} title={t("accessMode.clickToCycle")}>
                 <Badge
-                  variant={visibilityColor[skill.visibility] as "default" | "secondary" | "outline"}
+                  variant={accessModeVariant}
                   className="cursor-pointer hover:opacity-80 transition-opacity"
                 >
-                  {skill.visibility}
+                  {accessModeLabel}
                 </Badge>
               </button>
             ) : (
-              <Badge variant={visibilityColor[skill.visibility] as "default" | "secondary" | "outline"}>
-                {skill.visibility}
+              <Badge variant={accessModeVariant}>
+                {accessModeLabel}
               </Badge>
             )
           )}

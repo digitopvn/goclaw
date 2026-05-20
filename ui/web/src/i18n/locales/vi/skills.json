@@ -12,7 +12,8 @@
     "source": "Nguồn",
     "author": "Tác giả",
     "agents": "Agents",
-    "visibility": "Hiển thị",
+    "visibility": "Chế độ truy cập",
+    "accessMode": "Chế độ truy cập",
     "status": "Trạng thái",
     "actions": "Thao tác",
     "owner": "Chủ sở hữu"
@@ -47,7 +48,14 @@
     "unmanaged": "Chưa có quản lý"
   },
   "visibility": {
-    "clickToCycle": "Nhấp để thay đổi hiển thị"
+    "clickToCycle": "Nhấp để đổi chế độ truy cập"
+  },
+  "accessMode": {
+    "private": "Chỉ chủ sở hữu",
+    "internal": "Agent được cấp quyền",
+    "public": "Tất cả agent trong tenant",
+    "unknown": "Không rõ ({{value}})",
+    "clickToCycle": "Nhấp để đổi chế độ truy cập"
   },
   "delete": {
     "title": "Xóa skill",
@@ -99,7 +107,8 @@
     "title": "Chỉnh sửa skill",
     "name": "Tên",
     "description": "Mô tả",
-    "visibility": "Hiển thị",
+    "visibility": "Chế độ truy cập",
+    "accessMode": "Chế độ truy cập",
     "tags": "Thẻ",
     "addTag": "Thêm thẻ...",
     "add": "Thêm",

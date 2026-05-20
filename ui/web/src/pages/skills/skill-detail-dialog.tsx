@@ -24,6 +24,7 @@ import type { SkillInfo, SkillFile, SkillVersions } from "@/types/skill";
 import { buildTree } from "./skill-file-helpers";
 import { FileBrowser } from "./skill-file-browser";
 import { parseSkillDetailVersionParam, shouldLoadSkillDetailFile } from "./lib/skill-detail-deeplink";
+import { getSkillAccessModeKey } from "./lib/skill-access-mode";
 
 interface SkillDetailDialogProps {
   skill: SkillInfo & { content: string };
@@ -50,6 +51,10 @@ export function SkillDetailDialog({
 }: SkillDetailDialogProps) {
   const { t } = useTranslation("skills");
   const hasFiles = !!skill.id;
+  const accessModeKey = getSkillAccessModeKey(skill.visibility);
+  const accessModeLabel = accessModeKey === "unknown"
+    ? t("accessMode.unknown", { value: skill.visibility || t("unknownOwner") })
+    : t(`accessMode.${accessModeKey}`);
 
   // Version state
   const [versions, setVersions] = useState<SkillVersions | null>(null);
@@ -200,7 +205,7 @@ export function SkillDetailDialog({
               {skill.name}
               <Badge variant="outline">{skill.source || "file"}</Badge>
               {skill.visibility && (
-                <Badge variant="secondary">{skill.visibility}</Badge>
+                <Badge variant="secondary">{accessModeLabel}</Badge>
               )}
             </DialogTitle>
             {versions && versions.versions.length > 1 ? (
