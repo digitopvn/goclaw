@@ -175,6 +175,12 @@ verify_release_asset() {
 
 log "requested=${REQUESTED_TAG} resolved=${RESOLVED_TAG}"
 
+target_release_is_active() {
+  [ -d "$TARGET_DIR" ] || return 1
+  [ -L "${BASE_DIR}/current" ] || return 1
+  [ "$(readlink -f "${BASE_DIR}/current")" = "$(readlink -f "$TARGET_DIR")" ]
+}
+
 if [ "$DRY_RUN" = "1" ]; then
   TMP_DIR="$(mktemp -d)"
   cleanup() { rm -rf "$TMP_DIR"; }
@@ -183,6 +189,15 @@ if [ "$DRY_RUN" = "1" ]; then
   download_release_asset
   verify_release_asset
   log "dry-run ok"
+  exit 0
+fi
+
+if target_release_is_active; then
+  if [ ! -x "$TARGET_DIR/goclaw" ] || [ ! -d "$TARGET_DIR/migrations" ]; then
+    fail "active release is missing goclaw binary or migrations directory"
+  fi
+  log "target release already active: ${RESOLVED_TAG}"
+  write_status "succeeded" "$REQUESTED_TAG" "$RESOLVED_TAG" ""
   exit 0
 fi
 
