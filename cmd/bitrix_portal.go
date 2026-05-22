@@ -17,10 +17,8 @@ import (
 )
 
 // bitrixPortalCmd wires `goclaw bitrix-portal ...` — direct-DB management of
-// `bitrix_portals` rows. Phase 03 ships the OAuth install flow
-// (`/bitrix24/install`) but no RPC/UI for seeding the portal row the install
-// flow needs beforehand, so operators currently have no way to register a
-// new portal without shelling into Postgres. This command fills that gap.
+// `bitrix_portals` rows. It seeds the portal row required before an operator
+// runs the OAuth install flow at `/bitrix24/install`.
 //
 // Writes go through PGBitrixPortalStore so GOCLAW_ENCRYPTION_KEY is applied
 // to the credentials column the same way the runtime would. Reads via `list`
@@ -32,7 +30,7 @@ func bitrixPortalCmd() *cobra.Command {
 		Short: "Manage Bitrix24 portals (direct DB access; postgres only)",
 		Long: `Manage Bitrix24 portal rows in the database.
 
-Phase 03 expects a ` + "`bitrix_portals`" + ` row to exist before an operator runs the
+GoClaw expects a ` + "`bitrix_portals`" + ` row to exist before an operator runs the
 OAuth install flow at ` + "`/bitrix24/install`" + `. This command seeds that row without
 requiring SQL access to the database.`,
 	}
@@ -291,10 +289,9 @@ func bitrixPortalListCmd() *cobra.Command {
 }
 
 // bitrixPortalSetPublicURLCmd backfills bitrix_portals.state.public_url for
-// portals installed before Phase 01's auto-capture (no public_url in state
-// → channels can't register because event handler URL is empty). One-shot
-// op: after running once, channel registration succeeds for new bots and
-// future reinstalls update the URL automatically.
+// portals installed before automatic public_url capture existed. One-shot op:
+// after running once, channel registration succeeds for new bots and future
+// reinstalls update the URL automatically.
 //
 // Usage:
 //
@@ -383,4 +380,3 @@ func normalizeBitrixDomain(raw string) string {
 	s = strings.TrimSuffix(s, "/")
 	return s
 }
-

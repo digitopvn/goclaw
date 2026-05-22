@@ -247,14 +247,13 @@ export const configSchema: Record<string, FieldDef[]> = {
       { value: "O", label: "O — Open Channel bot (customer-facing queue)" },
     ], defaultValue: "B", help: "Forwarded verbatim to imbot.register TYPE. \"B\" = standard internal bot for portal users. \"O\" = Open Channel bot attached to a queue; per-user MCP credential minting is skipped because senders are transient customers." },
     { key: "bot_avatar", label: "Bot Avatar URL", type: "text", placeholder: "https://...", help: "Optional avatar URL — fetched and base64-encoded at Start()." },
-    // public_url removed v260513 — gateway URL is now captured automatically
-    // from the install handler request and stored on the portal row. See
-    // plans/260513-1648-bitrix24-portal-self-service-ux.
+    // public_url removed: gateway URL is now captured automatically from the
+    // install handler request and stored on the portal row.
     { key: "dm_policy", label: "DM Policy", type: "select", options: dmPolicyOptions, defaultValue: "pairing" },
     { key: "group_policy", label: "Group Policy", type: "select", options: groupPolicyOptions, defaultValue: "open" },
     { key: "require_mention", label: "Require @mention in groups", type: "boolean", defaultValue: true, help: "Only respond in group chats when the bot is explicitly @mentioned." },
     { key: "history_limit", label: "Group History Limit", type: "number", defaultValue: 0, help: "Max pending group messages for context (0 = disabled)" },
-    { key: "streaming", label: "Streaming", type: "boolean", defaultValue: true, help: "Stream response progressively (Phase 05)." },
+    { key: "streaming", label: "Streaming", type: "boolean", defaultValue: true, help: "Stream response progressively." },
     { key: "reaction_level", label: "Reaction Level", type: "select", options: [{ value: "off", label: "Off" }, { value: "minimal", label: "Minimal" }, { value: "full", label: "Full" }], defaultValue: "minimal", help: "Typing/status reactions while the agent is processing." },
     { key: "text_chunk_limit", label: "Text Chunk Limit", type: "number", defaultValue: 4000, help: "Max characters per outbound message." },
     { key: "media_max_mb", label: "Max Media Size (MB)", type: "number", defaultValue: 20, help: "Max inbound media download size." },

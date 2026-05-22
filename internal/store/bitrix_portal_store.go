@@ -40,8 +40,8 @@ type BitrixPortalState struct {
 	AppToken         string            `json:"app_token,omitempty"` // auth.application_token from OAuth response
 	Scope            string            `json:"scope,omitempty"`
 	ClientEndpoint   string            `json:"client_endpoint,omitempty"`
-	RegisteredBots   map[string]int    `json:"registered_bots,omitempty"` // bot_code → bot_id (Phase 03)
-	MediaFolders     map[string]string `json:"media_folders,omitempty"`   // bot_code → disk folder id (Phase 06)
+	RegisteredBots   map[string]int    `json:"registered_bots,omitempty"` // bot_code → bot_id
+	MediaFolders     map[string]string `json:"media_folders,omitempty"`   // bot_code → disk folder id
 	LastRefreshAt    time.Time         `json:"last_refresh_at,omitempty"`
 	LastRefreshError string            `json:"last_refresh_error,omitempty"`
 	ConsecutiveFail  int               `json:"consecutive_fail,omitempty"`
@@ -49,7 +49,7 @@ type BitrixPortalState struct {
 	// PublicURL is the gateway's externally reachable base URL, captured from
 	// the request hitting /bitrix24/install. Channels use this when registering
 	// imbot event handler URLs with Bitrix24. Replaces the deprecated per-channel
-	// public_url config. See plans/260513-1648-bitrix24-portal-self-service-ux.
+	// public_url config.
 	PublicURL string `json:"public_url,omitempty"`
 }
 

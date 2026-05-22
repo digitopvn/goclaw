@@ -20,14 +20,6 @@ import (
 // logs and is noisy — intended for one-shot capture during debugging.
 var bitrix24LogRawEvent = strings.TrimSpace(os.Getenv("BITRIX24_LOG_RAW_EVENT")) == "1"
 
-// bitrix24DebugUnredactedToken is a one-shot verify switch. When set
-// (env BITRIX24_DEBUG_UNREDACTED_TOKEN=1), handleEvent logs auth tokens
-// UNMASKED for the verify-token-identity script (Phase 0 of plan
-// 260512-1640-bitrix24-mcp-permission-fix). NEVER leave on in production
-// — full OAuth bearer in logs is a credential leak. Toggle on, capture
-// one event, toggle off.
-var bitrix24DebugUnredactedToken = strings.TrimSpace(os.Getenv("BITRIX24_DEBUG_UNREDACTED_TOKEN")) == "1"
-
 // isRedactedEventKey returns true for form keys whose values carry OAuth
 // credentials that must never appear verbatim in logs. Bitrix24 duplicates
 // the same tokens under multiple paths — top-level `auth[access_token]` AND
@@ -104,41 +96,6 @@ func dumpRawEvent(evt *Event) {
 		"event_type", evt.Type,
 		"domain", evt.Auth.Domain,
 		"body", b.String())
-}
-
-// dumpEventAuthDebug emits an UNMASKED token dump for Phase 0 verify of
-// plan 260512-1640-bitrix24-mcp-permission-fix. Gated by env
-// BITRIX24_DEBUG_UNREDACTED_TOKEN=1.
-//
-// Output is a single WARN line so it stands out in logs and is greppable:
-//
-//	grep "bitrix24 event: DEBUG unredacted token dump" goclaw.log | tail -1
-//
-// Use the access_token field to run verify-token-identity.sh:
-//
-//	./verify-token-identity.sh "<access_token>" "<sender_id>"
-//
-// Confirms whether auth.access_token is bound to sender (Bitrix v1 spec)
-// or installer/app (rebuts hypothesis S1).
-//
-// CRITICAL: toggle BITRIX24_DEBUG_UNREDACTED_TOKEN=0 (or unset) after
-// capture. Leaving on means every event leaks a fresh 1h OAuth bearer
-// into logs.
-func dumpEventAuthDebug(evt *Event) {
-	if evt == nil {
-		return
-	}
-	slog.Warn("bitrix24 event: DEBUG unredacted token dump",
-		"event_type", evt.Type,
-		"domain", evt.Auth.Domain,
-		"sender_id", evt.Params.FromUserID,
-		"auth_user_id_member", evt.Auth.MemberID,
-		"access_token", evt.Auth.AccessToken,
-		"refresh_token", evt.Auth.RefreshToken,
-		"scope", evt.Auth.Scope,
-		"expires_in", evt.Auth.ExpiresIn,
-		"warning", "UNMASKED — turn off BITRIX24_DEBUG_UNREDACTED_TOKEN after capture",
-	)
 }
 
 // maxInstallBodyBytes caps the /bitrix24/install body. Real install callbacks
@@ -391,14 +348,6 @@ func (r *Router) handleEvent(w http.ResponseWriter, req *http.Request) {
 		dumpRawEvent(evt)
 	}
 
-	// Phase 0 verify-token-identity helper. Gated by env
-	// BITRIX24_DEBUG_UNREDACTED_TOKEN=1. Emits a single WARN line with
-	// the sender's access_token UNMASKED so operators can pipe it into
-	// verify-token-identity.sh. Toggle OFF after capture.
-	if bitrix24DebugUnredactedToken {
-		dumpEventAuthDebug(evt)
-	}
-
 	if evt.Auth.Domain == "" {
 		writeJSONError(w, http.StatusBadRequest, "missing auth.domain")
 		return
@@ -495,8 +444,8 @@ func (r *Router) handleEvent(w http.ResponseWriter, req *http.Request) {
 	}
 
 	// Async dispatch. DispatchEvent is contractually non-blocking (bounded
-	// internal queue in Phase 03); we still wrap in a goroutine to isolate
-	// any panic and keep this handler's latency <50ms.
+	// internal queue); we still wrap in a goroutine to isolate any panic and keep
+	// this handler's latency <50ms.
 	//
 	// IMPORTANT: net/http cancels req.Context() as soon as this handler
 	// returns. The dispatcher goroutine outlives the handler, so we must
@@ -588,14 +537,9 @@ func renderBitrixPlaceholder(w http.ResponseWriter, title, body string) {
 // the "Application URL" and "Application settings handler" in the partner
 // app registration form.
 //
-// Phase 0: respond 200 placeholder so partners.bitrix24.com URL validation
-// passes during app registration. The page itself is informational only.
-//
-// Phase 1 (later, when needed): on POST, Bitrix24 delivers the opening
-// user's tokens via form fields (AUTH_ID, REFRESH_ID, member_id, DOMAIN,
-// AUTH_EXPIRES) per the simplified OAuth scenario. That path will forward
-// the tokens to the MCP server's /api/auto-onboard so the user gets a
-// per-user USR_ key without needing an explicit OAuth callback flow.
+// Currently responds with the 200 placeholder required by Bitrix24 app URL
+// validation. A future POST handler can process the opening user's Bitrix24
+// tokens and forward them to the MCP onboarding endpoint.
 func (r *Router) handleAppPage(w http.ResponseWriter, req *http.Request) {
 	// Accept HEAD for Bitrix24 URL reachability ping at registration time.
 	if req.Method == http.MethodHead {

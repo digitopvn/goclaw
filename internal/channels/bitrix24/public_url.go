@@ -117,4 +117,3 @@ func capturePublicURL(ctx context.Context, portal *Portal, req *http.Request, pr
 		promote(url)
 	}
 }
-

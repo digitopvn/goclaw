@@ -48,9 +48,8 @@ func hasNonEmpty(m map[string]string, key string) bool {
 // Both rewrites are correct for *memory and tenant-user resolution*, but
 // wrong for resources scoped per-actor:
 //
-//   - MCP credentials are minted per-user via the Phase C lazy provisioner
-//     (e.g. Bitrix24 channels/bitrix24/provisioner.go) and stored with
-//     user_id = SenderID. Looking them up by the rewritten UserID always
+//   - MCP credentials are minted per-user by channel provisioners and stored
+//     with user_id = SenderID. Looking them up by the rewritten UserID always
 //     misses the row.
 //   - RBAC grants and audit attribution must reflect the real actor, not
 //     the rewritten container — otherwise every action in a group or after
@@ -59,8 +58,7 @@ func hasNonEmpty(m map[string]string, key string) bool {
 // For Bitrix24 channel, where the provisioner always keys by SenderID
 // regardless of DM/group/merge state, we MUST always prefer SenderID.
 // Without the channelType discriminator, DMs with merged contacts hit the
-// "return userID" branch and silently lose MCP creds — the C1 bug fixed
-// by adding the channelType arg.
+// "return userID" branch and silently lose MCP creds.
 //
 // Other channels (Telegram, Slack, Discord, Zalo) currently do not
 // provision per-user MCP credentials, so for them the helper retains the
@@ -186,10 +184,10 @@ func (l *Loop) getUserMCPTools(ctx context.Context, userID string) []tools.Tool 
 		// cached in mcpUserTools sync.Map (line below) and resolved at execute
 		// time by executeToolForActor — they intentionally do NOT register
 		// into the shared tool registry because doing so causes a cross-user
-		// identity leak (C2): the first user wins and subsequent users get
-		// the first user's BridgeTool (with first user's MCP api_key + pool
-		// connection). The shared registry holds only shared/non-MCP tools
-		// (memory, web, exec, …).
+		// identity leak: the first user wins and subsequent users get the first
+		// user's BridgeTool (with first user's MCP api_key + pool connection).
+		// The shared registry holds only shared/non-MCP tools (memory, web,
+		// exec, …).
 		hints := mcpbridge.ParseToolHints(srv.Settings)
 		for _, mcpTool := range entry.MCPTools() {
 			bt := mcpbridge.NewBridgeTool(srv.Name, mcpTool, entry.ClientPtr(), srv.ToolPrefix, srv.TimeoutSec, entry.Connected(), srv.ID, l.mcpGrantChecker).
@@ -217,7 +215,7 @@ func (l *Loop) getUserMCPTools(ctx context.Context, userID string) []tools.Tool 
 // For per-user MCP tools (cached in mcpUserTools by actorUserID), we MUST
 // resolve from the user's own slice so the BridgeTool used carries that
 // user's MCP api_key + pool connection. Resolving via the shared registry
-// alone leaks the FIRST user's BridgeTool to every subsequent user (C2 bug).
+// alone leaks the first user's BridgeTool to every subsequent user.
 //
 // Fallback to shared registry for non-MCP tools (memory, web, exec, etc.)
 // and for cases where actorUserID has no per-user tools (synthetic events,

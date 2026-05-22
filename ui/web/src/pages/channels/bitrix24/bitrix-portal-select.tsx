@@ -37,7 +37,7 @@ interface BitrixPortalSelectProps {
 //
 // Special-cased in channel-fields.tsx::FieldRenderer for key="portal" +
 // channelType="bitrix24". Not generalised to FieldDef because we don't have
-// a second use case yet — see plan §YAGNI.
+// a second use case yet.
 export function BitrixPortalSelect({ value, onChange, onCreateRequest, onResumeAuthorize }: BitrixPortalSelectProps) {
   const { t } = useTranslation("channels");
   const { data: portals = [], isLoading, isError } = useBitrixPortals();

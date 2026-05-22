@@ -212,7 +212,7 @@ func (l *Loop) makeBuildFilteredTools(req *RunRequest) func(state *pipeline.RunS
 			state.Input.ChannelType,
 		)
 		userTools := l.getUserMCPTools(state.Ctx, actorUserID)
-		slog.Info("debug.mcp.user_tools_context",
+		slog.Debug("mcp.user_tools_context",
 			"peer_kind", state.Input.PeerKind,
 			"input_user_id", state.Input.UserID,
 			"sender_id", state.Input.SenderID,
@@ -239,7 +239,7 @@ func (l *Loop) makeBuildFilteredTools(req *RunRequest) func(state *pipeline.RunS
 				mcpDefs++
 			}
 		}
-		slog.Info("debug.mcp.filtered_tools",
+		slog.Debug("mcp.filtered_tools",
 			"tool_defs_count", len(toolDefs),
 			"mcp_defs_count", mcpDefs,
 			"iteration", state.Iteration)
@@ -320,7 +320,12 @@ func (l *Loop) makeCallLLM(req *RunRequest, emitRun func(AgentEvent)) func(ctx c
 		}
 		slog.Info("debug.llm.first_response",
 			"has_error", err != nil,
-			"tool_calls_count", func() int { if resp == nil { return -1 }; return len(resp.ToolCalls) }(),
+			"tool_calls_count", func() int {
+				if resp == nil {
+					return -1
+				}
+				return len(resp.ToolCalls)
+			}(),
 			"tools_provided", len(chatReq.Tools))
 
 		// One guarded retry when MCP task tools are available but the model
@@ -361,7 +366,12 @@ func (l *Loop) makeCallLLM(req *RunRequest, emitRun func(AgentEvent)) func(ctx c
 			}
 			slog.Info("debug.llm.retry_response",
 				"has_error", err != nil,
-				"tool_calls_count", func() int { if resp == nil { return -1 }; return len(resp.ToolCalls) }())
+				"tool_calls_count", func() int {
+					if resp == nil {
+						return -1
+					}
+					return len(resp.ToolCalls)
+				}())
 		}
 
 		// Non-streaming: emit content events matching v2 behavior (channels need these).
