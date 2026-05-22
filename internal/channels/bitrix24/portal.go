@@ -401,9 +401,11 @@ func (p *Portal) InstallFromTokens(ctx context.Context, tr *TokenResponse) error
 	if tr.AccessToken == "" || tr.RefreshToken == "" {
 		return errors.New("bitrix24 install: AUTH_ID and REFRESH_ID required")
 	}
-	if tr.Domain != "" && !strings.EqualFold(tr.Domain, p.domain) {
-		slog.Warn("bitrix24 install: domain mismatch",
-			"portal", p.name, "expected", p.domain, "received", tr.Domain)
+	if err := p.validateTokenResponseIdentity("install", tr); err != nil {
+		return err
+	}
+	if err := p.client.ValidateAccessToken(ctx, tr.AccessToken); err != nil {
+		return fmt.Errorf("bitrix24 install: validate access token: %w", err)
 	}
 	p.applyTokenResponse(tr)
 	// Detach context for the same reason Exchange does: once Bitrix has handed
@@ -422,14 +424,38 @@ func (p *Portal) Exchange(ctx context.Context, code string) error {
 	if err != nil {
 		return fmt.Errorf("bitrix24 exchange: %w", err)
 	}
-	if tr.Domain != "" && !strings.EqualFold(tr.Domain, p.domain) {
-		slog.Warn("bitrix24 exchange: domain mismatch",
-			"portal", p.name, "expected", p.domain, "received", tr.Domain)
+	if err := p.validateTokenResponseIdentity("exchange", tr); err != nil {
+		return err
 	}
 	p.applyTokenResponse(tr)
 	// Same rationale as refreshLocked: once Bitrix has minted tokens for us,
 	// a canceled install-callback context must not prevent persistence.
 	return p.persistState(context.WithoutCancel(ctx))
+}
+
+func (p *Portal) validateTokenResponseIdentity(flow string, tr *TokenResponse) error {
+	if tr == nil {
+		return fmt.Errorf("bitrix24 %s: nil token response", flow)
+	}
+	if strings.TrimSpace(tr.Domain) == "" {
+		return fmt.Errorf("bitrix24 %s: token response missing domain", flow)
+	}
+	if !strings.EqualFold(strings.TrimSpace(tr.Domain), p.domain) {
+		return fmt.Errorf("bitrix24 %s: domain mismatch: expected=%q received=%q", flow, p.domain, tr.Domain)
+	}
+
+	p.mu.RLock()
+	storedMember := p.state.MemberID
+	storedAppToken := p.state.AppToken
+	p.mu.RUnlock()
+
+	if storedMember != "" && tr.MemberID != "" && storedMember != tr.MemberID {
+		return fmt.Errorf("bitrix24 %s: member_id mismatch: stored=%q received=%q", flow, storedMember, tr.MemberID)
+	}
+	if storedAppToken != "" && tr.ApplicationToken != "" && !secureEqual(storedAppToken, tr.ApplicationToken) {
+		return fmt.Errorf("bitrix24 %s: application_token mismatch", flow)
+	}
+	return nil
 }
 
 // AccessToken returns a valid access token, refreshing synchronously if we're

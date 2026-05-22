@@ -256,6 +256,64 @@ func TestPortal_Exchange_RejectsEmptyCode(t *testing.T) {
 	}
 }
 
+func TestPortal_Exchange_RejectsDomainMismatch(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"access_token":"AT","refresh_token":"RT","expires_in":3600,
+			"domain":"attacker.bitrix24.com","member_id":"mem1"
+		}`))
+	}))
+	defer srv.Close()
+
+	fs := newFakeStore()
+	tid := store.GenNewID()
+	p := newTestPortal(t, srv, fs, tid, "p", store.BitrixPortalState{})
+
+	err := p.Exchange(context.Background(), "code-xyz")
+	if err == nil || !strings.Contains(err.Error(), "domain mismatch") {
+		t.Fatalf("expected domain mismatch, got %v", err)
+	}
+	if p.Installed() {
+		t.Fatal("portal must not persist tokens from another domain")
+	}
+	if atomic.LoadInt32(&fs.stateUpdates) != 0 {
+		t.Fatalf("state updates = %d, want 0", fs.stateUpdates)
+	}
+}
+
+func TestPortal_InstallFromTokens_ValidatesAccessTokenBeforePersist(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/rest/profile.json" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":"INVALID_TOKEN","error_description":"bad auth"}`))
+	}))
+	defer srv.Close()
+
+	fs := newFakeStore()
+	tid := store.GenNewID()
+	p := newTestPortal(t, srv, fs, tid, "p", store.BitrixPortalState{})
+
+	err := p.InstallFromTokens(context.Background(), &TokenResponse{
+		AccessToken:  "forged",
+		RefreshToken: "RT",
+		Domain:       "portal.bitrix24.com",
+		MemberID:     "mem1",
+	})
+	if err == nil || !strings.Contains(err.Error(), "validate access token") {
+		t.Fatalf("expected validation error, got %v", err)
+	}
+	if p.Installed() {
+		t.Fatal("portal must not persist unvalidated Local App tokens")
+	}
+	if atomic.LoadInt32(&fs.stateUpdates) != 0 {
+		t.Fatalf("state updates = %d, want 0", fs.stateUpdates)
+	}
+}
+
 func TestPortal_AccessToken_ReturnsCachedWhenFresh(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		t.Fatal("refresh should not happen for fresh token")

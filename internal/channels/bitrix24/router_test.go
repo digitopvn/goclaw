@@ -40,9 +40,9 @@ func newFakeDispatcher(botID int, tid uuid.UUID, portalName string) *fakeDispatc
 	}
 }
 
-func (d *fakeDispatcher) BotID() int             { return d.botID }
-func (d *fakeDispatcher) TenantID() uuid.UUID    { return d.tid }
-func (d *fakeDispatcher) PortalName() string     { return d.name }
+func (d *fakeDispatcher) BotID() int          { return d.botID }
+func (d *fakeDispatcher) TenantID() uuid.UUID { return d.tid }
+func (d *fakeDispatcher) PortalName() string  { return d.name }
 func (d *fakeDispatcher) DispatchEvent(_ context.Context, evt *Event) {
 	d.events <- evt
 }
@@ -282,11 +282,27 @@ func TestRouter_HandleInstall_CaptureFailsSilently_OnPrivateHost(t *testing.T) {
 	}
 }
 
-func TestRouter_HandleInstall_MissingCode(t *testing.T) {
+func TestRouter_HandleInstall_MissingCodeGetReturnsPlaceholder(t *testing.T) {
 	r := newRouterForTest()
 	defer r.Stop()
 
 	req := httptest.NewRequest(http.MethodGet, "/bitrix24/install?state="+uuid.NewString()+":p", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "Bitrix24 Install Endpoint") {
+		t.Fatalf("body missing placeholder marker: %s", rec.Body.String())
+	}
+}
+
+func TestRouter_HandleInstall_MissingCodePostRejects(t *testing.T) {
+	r := newRouterForTest()
+	defer r.Stop()
+
+	req := httptest.NewRequest(http.MethodPost, "/bitrix24/install?state="+uuid.NewString()+":p", nil)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 
@@ -337,6 +353,45 @@ func TestRouter_HandleInstall_DomainMismatch(t *testing.T) {
 
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("status = %d, want 403", rec.Code)
+	}
+}
+
+func TestRouter_HandleInstallLocalApp_RejectsUnvalidatedToken(t *testing.T) {
+	fs := newFakeStore()
+	tid := uuid.New()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/rest/profile.json" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":"INVALID_TOKEN","error_description":"bad auth"}`))
+	}))
+	defer srv.Close()
+
+	portal := newTestPortal(t, srv, fs, tid, "p", store.BitrixPortalState{})
+	r := newRouterForTest()
+	defer r.Stop()
+	r.RegisterPortal(portal)
+
+	form := url.Values{}
+	form.Set("AUTH_ID", "forged-access-token")
+	form.Set("REFRESH_ID", "forged-refresh-token")
+	form.Set("AUTH_EXPIRES", "3600")
+	form.Set("DOMAIN", "portal.bitrix24.com")
+	form.Set("member_id", "mem1")
+	req := httptest.NewRequest(http.MethodPost, "/bitrix24/install", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want 502; body=%s", rec.Code, rec.Body.String())
+	}
+	if portal.Installed() {
+		t.Fatal("portal should not install with unvalidated Local App tokens")
 	}
 }
 
@@ -757,6 +812,23 @@ func TestRouter_PortalByDomainAndKey(t *testing.T) {
 	}
 }
 
+func TestRouter_PortalByDomain_DuplicateDomainFailsClosed(t *testing.T) {
+	fs := newFakeStore()
+	tid1 := uuid.New()
+	tid2 := uuid.New()
+	p1 := newInstalledPortal(t, fs, tid1, "p1", "customer.bitrix24.com", "APP1")
+	p2 := newInstalledPortal(t, fs, tid2, "p2", "CUSTOMER.bitrix24.com", "APP2")
+	r := newRouterForTest()
+	defer r.Stop()
+
+	r.RegisterPortal(p1)
+	r.RegisterPortal(p2)
+
+	if got, ok := r.PortalByDomain("customer.bitrix24.com"); ok || got != nil {
+		t.Fatalf("duplicate domain should fail closed, got ok=%v portal=%v", ok, got)
+	}
+}
+
 func TestRouter_RegisterBot_IgnoresInvalidInputs(t *testing.T) {
 	r := newRouterForTest()
 	defer r.Stop()
@@ -812,10 +884,10 @@ type panickingDispatcher struct {
 	name string
 }
 
-func (d *panickingDispatcher) BotID() int                                  { return 777 }
-func (d *panickingDispatcher) TenantID() uuid.UUID                         { return d.tid }
-func (d *panickingDispatcher) PortalName() string                          { return d.name }
-func (d *panickingDispatcher) DispatchEvent(_ context.Context, _ *Event)   { panic("boom") }
+func (d *panickingDispatcher) BotID() int                                { return 777 }
+func (d *panickingDispatcher) TenantID() uuid.UUID                       { return d.tid }
+func (d *panickingDispatcher) PortalName() string                        { return d.name }
+func (d *panickingDispatcher) DispatchEvent(_ context.Context, _ *Event) { panic("boom") }
 
 func TestRouter_DispatcherPanicIsIsolated(t *testing.T) {
 	fs := newFakeStore()

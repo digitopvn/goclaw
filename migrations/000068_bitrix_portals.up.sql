@@ -1,8 +1,8 @@
--- Migration 000058: Bitrix24 portal OAuth state
+-- Migration 000068: Bitrix24 portal OAuth state
 -- Creates bitrix_portals table that stores per-tenant OAuth credentials and
 -- refresh state for a Bitrix24 portal. Multiple bitrix24 channels (chatbots)
 -- can share the same portal row via a portal reference on the channel
--- instance config (Phase 03).
+-- instance config.
 --
 -- `credentials` (client_id/client_secret) and `state` (access/refresh tokens,
 -- member_id, app_token, registered_bots, media_folders) are both stored as
@@ -26,6 +26,6 @@ CREATE TABLE IF NOT EXISTS bitrix_portals (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_bitrix_portals_tenant_name
     ON bitrix_portals (tenant_id, name);
 
--- Lookup by incoming webhook domain (Phase 02).
-CREATE INDEX IF NOT EXISTS idx_bitrix_portals_domain
-    ON bitrix_portals (domain);
+-- Incoming install/event callbacks resolve by domain before tenant scope is known.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_bitrix_portals_domain
+    ON bitrix_portals (LOWER(TRIM(domain)));

@@ -33,6 +33,8 @@ const (
 	handlerPath = "/bitrix24/handler"
 )
 
+const ambiguousDomainKey = "\x00ambiguous-domain"
+
 // BotDispatcher is the contract Phase 03 Channel implements so Router can
 // deliver a verified event to the right bot without importing the Channel
 // package. Phase 02 tests use an in-memory fake.
@@ -53,18 +55,18 @@ type BotDispatcher interface {
 //
 // State:
 //   - portals: (tenant_id + ":" + portal_name) → *Portal
-//   - domains: bitrix portal domain → tenantKey (for event routing by auth.domain)
+//   - domains: bitrix portal domain → tenantKey (or ambiguousDomainKey to fail closed)
 //   - byBotID: bot_id (int, set on imbot.register) → BotDispatcher
 //   - dedup:   per-portal MESSAGE_ID LRU (bounded + TTL)
 type Router struct {
 	portalStore store.BitrixPortalStore
 	encKey      string
 
-	mu       sync.RWMutex
-	portals  map[string]*Portal        // tenantKey → *Portal
-	domains  map[string]string         // domain (lowercase) → tenantKey
-	byBotID  map[int]BotDispatcher     // bot_id → dispatcher
-	dedup    *dedupCache
+	mu      sync.RWMutex
+	portals map[string]*Portal    // tenantKey → *Portal
+	domains map[string]string     // domain (normalized lowercase) → tenantKey
+	byBotID map[int]BotDispatcher // bot_id → dispatcher
+	dedup   *dedupCache
 
 	// running tracks portals whose refresh loop has already been kicked off
 	// so EnsurePortalRunning is idempotent across multiple Channel.Start calls
@@ -140,10 +142,26 @@ func (r *Router) RegisterPortal(p *Portal) {
 			"tenant", p.TenantID(), "portal", p.Name())
 	}
 	r.portals[key] = p
-	if d := strings.ToLower(strings.TrimSpace(p.Domain())); d != "" {
-		r.domains[d] = key
-	}
+	r.setDomainLocked(p.Domain(), key)
 	r.mu.Unlock()
+}
+
+func (r *Router) setDomainLocked(domain, key string) {
+	d := normalizePortalDomain(domain)
+	if d == "" {
+		return
+	}
+	if existingKey, ok := r.domains[d]; ok && existingKey != key {
+		r.domains[d] = ambiguousDomainKey
+		slog.Warn("security.bitrix24_domain_collision",
+			"domain", d,
+			"existing_key", existingKey,
+			"new_key", key)
+		return
+	} else if existingKey == ambiguousDomainKey {
+		return
+	}
+	r.domains[d] = key
 }
 
 // UnregisterPortal removes a portal from both lookup tables.
@@ -156,7 +174,7 @@ func (r *Router) UnregisterPortal(tenantID uuid.UUID, name string) {
 	r.mu.Lock()
 	if p, ok := r.portals[key]; ok {
 		delete(r.portals, key)
-		if d := strings.ToLower(strings.TrimSpace(p.Domain())); d != "" {
+		if d := normalizePortalDomain(p.Domain()); d != "" {
 			// Only clear if the domain still points at this same key —
 			// guards against racing re-registration under a new name.
 			if r.domains[d] == key {
@@ -202,18 +220,22 @@ func (r *Router) PortalByKey(tenantID uuid.UUID, name string) (*Portal, bool) {
 // PortalByDomain resolves a portal by its Bitrix24 domain.
 // Used by handleEvent to find the target portal from auth.domain.
 func (r *Router) PortalByDomain(domain string) (*Portal, bool) {
-	d := strings.ToLower(strings.TrimSpace(domain))
+	d := normalizePortalDomain(domain)
 	if d == "" {
 		return nil, false
 	}
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	key, ok := r.domains[d]
-	if !ok {
+	if !ok || key == ambiguousDomainKey {
 		return nil, false
 	}
 	p, ok := r.portals[key]
 	return p, ok
+}
+
+func normalizePortalDomain(domain string) string {
+	return strings.ToLower(strings.TrimSpace(domain))
 }
 
 // ClaimWebhookRoute returns the path+handler pair that the first Bitrix24

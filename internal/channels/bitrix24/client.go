@@ -207,6 +207,51 @@ func (c *Client) postTokenForm(ctx context.Context, form url.Values) (*TokenResp
 	return &tr, nil
 }
 
+// ValidateAccessToken checks that Bitrix24 accepts the access token on this
+// portal domain before GoClaw persists it as install state.
+func (c *Client) ValidateAccessToken(ctx context.Context, accessToken string) error {
+	if c.domain == "" {
+		return errors.New("bitrix24 client: domain not set")
+	}
+	if strings.TrimSpace(accessToken) == "" {
+		return errors.New("bitrix24 client: access token required")
+	}
+
+	form := url.Values{"auth": {accessToken}}
+	endpoint := "https://" + c.domain + "/rest/profile.json"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(form.Encode()))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("bitrix24 profile http: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return fmt.Errorf("bitrix24 profile read: %w", err)
+	}
+
+	var rr RawResult
+	if err := json.Unmarshal(body, &rr); err != nil {
+		return fmt.Errorf("bitrix24 profile decode (status=%d): %w: %s", resp.StatusCode, err, truncate(string(body), 200))
+	}
+	if resp.StatusCode >= 400 || rr.Error != "" {
+		return &APIError{
+			Status:      resp.StatusCode,
+			Code:        rr.Error,
+			Description: rr.ErrorDescription,
+			Method:      "profile",
+		}
+	}
+	return nil
+}
+
 // Call performs an authenticated REST call against this client's portal.
 //
 // Phase 01 ships Call for completeness — higher phases (03+) use it for

@@ -158,7 +158,7 @@ const maxInstallBodyBytes = 64 << 10 // 64 KiB
 //  2. Local application:
 //     POST /bitrix24/install
 //     body: AUTH_ID, REFRESH_ID, AUTH_EXPIRES, member_id, DOMAIN,
-//           application_token, PROTOCOL, LANG, APP_SID, status, PLACEMENT
+//     application_token, PROTOCOL, LANG, APP_SID, status, PLACEMENT
 //     Tokens are already minted — no exchange call — so we skip ExchangeAuthCode
 //     and persist the tokens directly.
 //
@@ -266,9 +266,7 @@ func (r *Router) handleInstall(w http.ResponseWriter, req *http.Request) {
 	// Refresh domain index in case the first Exchange arrived before the
 	// initial RegisterPortal was able to read a stored domain.
 	r.mu.Lock()
-	if d := strings.ToLower(strings.TrimSpace(portal.Domain())); d != "" {
-		r.domains[d] = portalKey(tid, name)
-	}
+	r.setDomainLocked(portal.Domain(), portalKey(tid, name))
 	r.mu.Unlock()
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -337,9 +335,7 @@ func (r *Router) handleInstallLocalApp(w http.ResponseWriter, req *http.Request)
 	// Refresh domain index in case the first install landed before RegisterPortal
 	// could read a stored domain (mirrors OAuth path above).
 	r.mu.Lock()
-	if d := strings.ToLower(domain); d != "" {
-		r.domains[d] = portalKey(portal.TenantID(), portal.Name())
-	}
+	r.setDomainLocked(domain, portalKey(portal.TenantID(), portal.Name()))
 	r.mu.Unlock()
 
 	// Visible signal in logs so operators can confirm a Local App reinstall
@@ -448,23 +444,11 @@ func (r *Router) handleEvent(w http.ResponseWriter, req *http.Request) {
 		}
 	}
 	if !secureEqual(want, got) {
-		// Attempt safe rotation (reinstall can rotate app_token). Only succeeds when member_id matches.
-		if rotated, err := portal.RotateAppTokenIfTrusted(req.Context(), evt.Auth.MemberID, got); err == nil && rotated {
-			// Re-check with updated token.
-			want = portal.AppToken()
-			if secureEqual(want, got) {
-				slog.Info("bitrix24 event: app_token rotated, continuing",
-					"tenant", portal.TenantID(), "portal", portal.Name(),
-					"domain", evt.Auth.Domain, "event", evt.Type)
-			}
-		}
-		if !secureEqual(want, got) {
-			slog.Warn("security.bitrix24_apptoken_mismatch",
-				"tenant", portal.TenantID(), "portal", portal.Name(),
-				"domain", evt.Auth.Domain, "event", evt.Type)
-			writeJSONError(w, http.StatusUnauthorized, "invalid application_token")
-			return
-		}
+		slog.Warn("security.bitrix24_apptoken_mismatch",
+			"tenant", portal.TenantID(), "portal", portal.Name(),
+			"domain", evt.Auth.Domain, "event", evt.Type)
+		writeJSONError(w, http.StatusUnauthorized, "invalid application_token")
+		return
 	}
 
 	// Dedup by (domain, MESSAGE_ID). Events without MESSAGE_ID (e.g. joinChat)

@@ -61,7 +61,7 @@ export function McpSettingsFields({ form }: McpSettingsFieldsProps) {
             onChange={(e) => setValue("toolHintsGlobal", e.target.value)}
             placeholder={t("form.toolHintsGlobalPlaceholder")}
             rows={3}
-            className="text-sm resize-y"
+            className="text-base md:text-sm resize-y"
           />
           <p className="text-xs text-muted-foreground">{t("form.toolHintsGlobalHint")}</p>
         </div>
