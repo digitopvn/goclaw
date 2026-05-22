@@ -18,6 +18,19 @@ Significant changes, features, and fixes in reverse chronological order.
 
 - Added focused HTTP, store, and runtime log coverage for branch/follow, writer test, activity aggregate, and LogTee ring aggregation.
 
+### CI/CD: zuey beta deploy
+
+**Features**
+
+- Added automatic zuey VPS deployment to the `Dev CI and Beta Release` workflow after beta prerelease assets are published.
+- The deploy job triggers the protected gateway upgrade endpoint with the generated `vX.Y.Z-beta.N` tag, waits for upgrade status, and verifies public `/health`.
+- Beta prereleases now upload `CHECKSUMS.sha256` alongside binary assets.
+
+**Fixes**
+
+- Updated the host release-upgrade script to support beta asset filenames with a leading `v`.
+- Added checksum fallback to GitHub release asset SHA256 digests when beta releases do not publish `CHECKSUMS.sha256`.
+
 ---
 
 ## 2026-05-20
