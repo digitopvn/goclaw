@@ -9,7 +9,15 @@ import (
 	"github.com/google/uuid"
 )
 
-var ErrBrowserCookieEncryptionRequired = errors.New("browser cookie encryption key required")
+var (
+	ErrBrowserCookieEncryptionRequired = errors.New("browser cookie encryption key required")
+	ErrBrowserCookieTenantRequired     = errors.New("browser cookie tenant_id required")
+	ErrBrowserCookieUserRequired       = errors.New("browser cookie user_id required")
+	ErrBrowserCookieAgentRequired      = errors.New("browser cookie agent_id required")
+	ErrBrowserCookieDomainRequired     = errors.New("browser cookie domain required")
+	ErrBrowserCookieNameRequired       = errors.New("browser cookie name required")
+	ErrBrowserCookiePathRequired       = errors.New("browser cookie path required")
+)
 
 // BrowserCookieScope is the tenant/user/agent boundary for synced browser cookies.
 type BrowserCookieScope struct {
@@ -65,11 +73,11 @@ func BrowserCookieScopeFromContext(ctx context.Context, agentID string) BrowserC
 func (s BrowserCookieScope) Validate() error {
 	switch {
 	case s.TenantID == uuid.Nil:
-		return errors.New("tenant_id required")
+		return ErrBrowserCookieTenantRequired
 	case strings.TrimSpace(s.UserID) == "":
-		return errors.New("user_id required")
+		return ErrBrowserCookieUserRequired
 	case strings.TrimSpace(s.AgentID) == "":
-		return errors.New("agent_id required")
+		return ErrBrowserCookieAgentRequired
 	default:
 		return nil
 	}
@@ -91,11 +99,11 @@ func ValidateBrowserCookie(c BrowserCookie) error {
 	c = NormalizeBrowserCookie(c)
 	switch {
 	case c.Domain == "":
-		return errors.New("domain required")
+		return ErrBrowserCookieDomainRequired
 	case c.Name == "":
-		return errors.New("name required")
+		return ErrBrowserCookieNameRequired
 	case c.Path == "":
-		return errors.New("path required")
+		return ErrBrowserCookiePathRequired
 	default:
 		return nil
 	}

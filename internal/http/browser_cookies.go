@@ -20,6 +20,12 @@ const (
 	maxBrowserCookieValueBytes    = 16 << 10
 )
 
+var (
+	errBrowserCookieInvalidURL     = errors.New("invalid cookie url")
+	errBrowserCookieValueTooLarge  = errors.New("cookie value too large")
+	errBrowserCookieTooManyCookies = errors.New("too many cookies")
+)
+
 // BrowserCookiesHandler stores selected browser cookies for server-side browser sessions.
 type BrowserCookiesHandler struct {
 	cookies store.BrowserCookieStore
@@ -89,7 +95,7 @@ func (h *BrowserCookiesHandler) handleSync(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if len(req.Cookies) > maxBrowserCookieSyncItems {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "too many cookies"})
+		h.writeValidationError(w, locale, errBrowserCookieTooManyCookies)
 		return
 	}
 
@@ -101,7 +107,7 @@ func (h *BrowserCookiesHandler) handleSync(w http.ResponseWriter, r *http.Reques
 	for _, item := range req.Cookies {
 		c, err := item.toStoreCookie(source)
 		if err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			h.writeValidationError(w, locale, err)
 			return
 		}
 		cookies = append(cookies, c)
@@ -175,16 +181,41 @@ func (h *BrowserCookiesHandler) scopeFromRequest(w http.ResponseWriter, r *http.
 	scope := store.BrowserCookieScopeFromContext(r.Context(), agentID)
 	if err := scope.Validate(); err != nil {
 		slog.Warn("security.browser_cookie_sync.scope_denied", "error", err, "path", r.URL.Path)
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": i18n.T(locale, i18n.MsgRequired, err.Error())})
+		h.writeValidationError(w, locale, err)
 		return store.BrowserCookieScope{}, false
 	}
 	return scope, true
 }
 
+func (h *BrowserCookiesHandler) writeValidationError(w http.ResponseWriter, locale string, err error) {
+	msg := i18n.T(locale, i18n.MsgInvalidRequest, "browser cookies")
+	switch {
+	case errors.Is(err, store.ErrBrowserCookieTenantRequired):
+		msg = i18n.T(locale, i18n.MsgRequired, "tenant_id")
+	case errors.Is(err, store.ErrBrowserCookieUserRequired):
+		msg = i18n.T(locale, i18n.MsgRequired, "user_id")
+	case errors.Is(err, store.ErrBrowserCookieAgentRequired):
+		msg = i18n.T(locale, i18n.MsgRequired, "agent_id")
+	case errors.Is(err, store.ErrBrowserCookieDomainRequired):
+		msg = i18n.T(locale, i18n.MsgRequired, "domain")
+	case errors.Is(err, store.ErrBrowserCookieNameRequired):
+		msg = i18n.T(locale, i18n.MsgRequired, "name")
+	case errors.Is(err, store.ErrBrowserCookiePathRequired):
+		msg = i18n.T(locale, i18n.MsgRequired, "path")
+	case errors.Is(err, errBrowserCookieInvalidURL):
+		msg = i18n.T(locale, i18n.MsgInvalidCookieURL)
+	case errors.Is(err, errBrowserCookieValueTooLarge):
+		msg = i18n.T(locale, i18n.MsgBrowserCookieValueTooLarge)
+	case errors.Is(err, errBrowserCookieTooManyCookies):
+		msg = i18n.T(locale, i18n.MsgBrowserCookieTooMany)
+	}
+	writeJSON(w, http.StatusBadRequest, map[string]string{"error": msg})
+}
+
 func (h *BrowserCookiesHandler) writeStoreError(w http.ResponseWriter, locale, op string, err error) {
 	if errors.Is(err, store.ErrBrowserCookieEncryptionRequired) {
 		slog.Warn("security.browser_cookie_sync.encryption_required", "op", op)
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "browser cookie encryption is not configured"})
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": i18n.T(locale, i18n.MsgBrowserCookieEncryptionRequired)})
 		return
 	}
 	slog.Error(op, "error", err)
@@ -196,12 +227,12 @@ func (p browserCookieSyncPayload) toStoreCookie(source string) (store.BrowserCoo
 	if domain == "" && p.URL != "" {
 		u, err := url.Parse(p.URL)
 		if err != nil {
-			return store.BrowserCookie{}, errors.New("invalid cookie url")
+			return store.BrowserCookie{}, errBrowserCookieInvalidURL
 		}
 		domain = u.Hostname()
 	}
 	if len(p.Value) > maxBrowserCookieValueBytes {
-		return store.BrowserCookie{}, errors.New("cookie value too large")
+		return store.BrowserCookie{}, errBrowserCookieValueTooLarge
 	}
 	c := store.NormalizeBrowserCookie(store.BrowserCookie{
 		Domain:    domain,
