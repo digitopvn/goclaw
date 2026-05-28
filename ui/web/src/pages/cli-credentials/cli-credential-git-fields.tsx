@@ -143,7 +143,7 @@ export function CliCredentialGitFields({
                 : t("userCredentials.sshKeyPlaceholder")
             }
             aria-invalid={passphraseError || sshKeyError}
-            className="font-mono text-xs"
+            className="font-mono text-base md:text-xs"
           />
           {passphraseError && (
             <p data-testid="git-cred-passphrase-error" className="text-xs text-destructive">

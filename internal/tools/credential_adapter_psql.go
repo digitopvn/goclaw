@@ -69,14 +69,17 @@ func (psqlAdapter) Prepare(_ context.Context, _ *store.SecureCLIBinary, cred *st
 		escapePgpass(pg.Password),
 	)
 
-	path, cleanup, err := materializeEphemeral(nil, []byte(line), "pgpass")
+	path, cleanup, err := materializeEphemeral(context.TODO(), []byte(line), "pgpass")
 	if err != nil {
 		return nil, err
 	}
 	return &Injection{
-		Env:         map[string]string{"PGPASSFILE": path},
-		Cleanup:     cleanup,
-		ScrubValues: []string{pg.Password},
+		Env:     map[string]string{"PGPASSFILE": path},
+		Cleanup: cleanup,
+		// Scrub both the secret AND the on-disk tmpfile path — psql echoes
+		// `could not open password file "<path>"` on permission/IO errors.
+		// Mirrors git SSH adapter pattern (credential_adapter_git.go).
+		ScrubValues: []string{pg.Password, path},
 	}, nil
 }
 

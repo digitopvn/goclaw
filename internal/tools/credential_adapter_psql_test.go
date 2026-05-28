@@ -93,8 +93,10 @@ func TestPsqlAdapter_PreparePgPasswordFile(t *testing.T) {
 			t.Fatalf("file mode=%o, want 0600", perm)
 		}
 	}
-	if len(inj.ScrubValues) != 1 || inj.ScrubValues[0] != "s3cret!" {
-		t.Fatalf("ScrubValues=%v, want [s3cret!]", inj.ScrubValues)
+	// ScrubValues must include both the password AND the on-disk tmpfile path
+	// (psql echoes `could not open password file "<path>"` on IO errors).
+	if len(inj.ScrubValues) != 2 || inj.ScrubValues[0] != "s3cret!" || inj.ScrubValues[1] != path {
+		t.Fatalf("ScrubValues=%v, want [s3cret! %s]", inj.ScrubValues, path)
 	}
 	if inj.Cleanup == nil {
 		t.Fatalf("Cleanup missing")
