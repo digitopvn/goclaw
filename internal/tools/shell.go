@@ -3,6 +3,7 @@ package tools
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -13,11 +14,19 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/nextlevelbuilder/goclaw/internal/config"
 	"github.com/nextlevelbuilder/goclaw/internal/sandbox"
 	"github.com/nextlevelbuilder/goclaw/internal/store"
 	"golang.org/x/text/unicode/norm"
+)
+
+const (
+	ExecDefaultTimeoutSeconds = 60
+	ExecMinTimeoutSeconds     = 1
+	ExecMaxTimeoutSeconds     = 3600
 )
 
 // Dangerous command patterns organized into configurable deny groups.
@@ -35,20 +44,47 @@ func DefaultDenyPatterns() []*regexp.Regexp {
 
 // ExecTool executes shell commands, optionally inside a sandbox container.
 type ExecTool struct {
-	workspace        string
-	timeout          time.Duration
-	pathDenyPatterns []*regexp.Regexp // always-on path-based denials (DenyPaths)
-	pathDenyRoots    []string         // raw deny roots for nested workspace exemptions
-	denyExemptions   []string         // substrings that exempt a command from deny
-	restrict         bool
-	sandboxMgr       sandbox.Manager      // nil = no sandbox, execute on host
-	approvalMgr      *ExecApprovalManager // nil = no approval needed
-	agentID          string               // for approval request context
-	secureCLIStore   store.SecureCLIStore // nil = no credentialed exec
+	workspace               string
+	timeout                 time.Duration
+	pathDenyPatterns        []*regexp.Regexp // always-on path-based denials (DenyPaths)
+	pathDenyRoots           []string         // raw deny roots for nested workspace exemptions
+	denyExemptions          []string         // substrings that exempt a command from deny
+	restrict                bool
+	sandboxMgr              sandbox.Manager      // nil = no sandbox, execute on host
+	approvalMgr             *ExecApprovalManager // nil = no approval needed
+	agentID                 string               // for approval request context
+	secureCLIStore          store.SecureCLIStore // nil = no credentialed exec
+	policyMu                sync.RWMutex
+	commandKeywordAllowlist []config.CommandKeywordAllowlistRule
 	// globalDenyGroups holds global shell deny-group toggles from config.tools.
 	// Per-agent overrides from context (store.WithShellDenyGroups) win per-key.
 	// Updated at startup and via TopicConfigChanged pub/sub for runtime reload.
 	globalDenyGroups map[string]bool
+}
+
+// SetCommandKeywordAllowlist replaces the scoped credentialed CLI keyword
+// allowlist. The slice is defensively copied so config reload callers cannot
+// mutate the running tool policy after assignment.
+func (t *ExecTool) SetCommandKeywordAllowlist(rules []config.CommandKeywordAllowlistRule) {
+	t.policyMu.Lock()
+	defer t.policyMu.Unlock()
+	if len(rules) == 0 {
+		t.commandKeywordAllowlist = nil
+		return
+	}
+	t.commandKeywordAllowlist = slicesClone(rules)
+}
+
+// CommandKeywordAllowlistForTest exposes the effective global allowlist for
+// cross-package config reload tests. Not for production callers.
+func (t *ExecTool) CommandKeywordAllowlistForTest() []config.CommandKeywordAllowlistRule {
+	return t.commandKeywordAllowlistSnapshot()
+}
+
+func (t *ExecTool) commandKeywordAllowlistSnapshot() []config.CommandKeywordAllowlistRule {
+	t.policyMu.RLock()
+	defer t.policyMu.RUnlock()
+	return slicesClone(t.commandKeywordAllowlist)
 }
 
 // SetGlobalShellDenyGroups replaces the global shell deny-group toggles. The
@@ -56,6 +92,8 @@ type ExecTool struct {
 // tool's internal state. Passing nil or an empty map clears the global config
 // (per-agent context overrides, if any, still apply on their own).
 func (t *ExecTool) SetGlobalShellDenyGroups(groups map[string]bool) {
+	t.policyMu.Lock()
+	defer t.policyMu.Unlock()
 	if len(groups) == 0 {
 		t.globalDenyGroups = nil
 		return
@@ -70,14 +108,20 @@ func (t *ExecTool) SetGlobalShellDenyGroups(groups map[string]bool) {
 // empty, the other is returned directly (no allocation).
 func (t *ExecTool) effectiveDenyGroups(ctx context.Context) map[string]bool {
 	agent := store.ShellDenyGroupsFromContext(ctx)
-	if len(t.globalDenyGroups) == 0 {
+	t.policyMu.RLock()
+	global := t.globalDenyGroups
+	if len(global) > 0 {
+		global = maps.Clone(global)
+	}
+	t.policyMu.RUnlock()
+	if len(global) == 0 {
 		return agent
 	}
 	if len(agent) == 0 {
-		return t.globalDenyGroups
+		return global
 	}
-	merged := make(map[string]bool, len(t.globalDenyGroups)+len(agent))
-	maps.Copy(merged, t.globalDenyGroups)
+	merged := make(map[string]bool, len(global)+len(agent))
+	maps.Copy(merged, global)
 	// agent wins per-key
 	maps.Copy(merged, agent)
 	return merged
@@ -93,7 +137,7 @@ func (t *ExecTool) EffectiveDenyGroupsForTest(ctx context.Context) map[string]bo
 func NewExecTool(workspace string, restrict bool) *ExecTool {
 	return &ExecTool{
 		workspace: workspace,
-		timeout:   60 * time.Second,
+		timeout:   time.Duration(ExecDefaultTimeoutSeconds) * time.Second,
 		restrict:  restrict,
 	}
 }
@@ -405,6 +449,69 @@ func (t *ExecTool) Execute(ctx context.Context, args map[string]any) *Result {
 	return t.executeOnHost(ctx, command, cwd)
 }
 
+type execSettings struct {
+	TimeoutSeconds *int `json:"timeout_seconds"`
+}
+
+// ValidateExecSettingsJSON validates the public settings contract for the exec
+// builtin. Other tools are ignored so their flexible JSON settings stay intact.
+func ValidateExecSettingsJSON(toolName string, raw json.RawMessage, allowNull bool) error {
+	if toolName != "exec" {
+		return nil
+	}
+	seconds, ok, err := parseExecTimeoutSeconds(raw, allowNull)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return nil
+	}
+	if seconds > ExecMaxTimeoutSeconds {
+		return fmt.Errorf("timeout_seconds must be <= %d", ExecMaxTimeoutSeconds)
+	}
+	return nil
+}
+
+func parseExecTimeoutSeconds(raw json.RawMessage, allowNull bool) (int, bool, error) {
+	if len(raw) == 0 {
+		return 0, false, nil
+	}
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "null" {
+		if allowNull {
+			return 0, false, nil
+		}
+		return 0, false, errors.New("settings must be a JSON object")
+	}
+	var settings execSettings
+	if err := json.Unmarshal(raw, &settings); err != nil {
+		return 0, false, errors.New("settings must be a JSON object with numeric timeout_seconds")
+	}
+	if settings.TimeoutSeconds == nil {
+		return 0, false, nil
+	}
+	if *settings.TimeoutSeconds < ExecMinTimeoutSeconds {
+		return 0, true, fmt.Errorf("timeout_seconds must be >= %d", ExecMinTimeoutSeconds)
+	}
+	return *settings.TimeoutSeconds, true, nil
+}
+
+func (t *ExecTool) effectiveTimeout(ctx context.Context) time.Duration {
+	settings := BuiltinToolSettingsFromCtx(ctx)
+	if raw, ok := settings["exec"]; ok {
+		if seconds, hasValue, err := parseExecTimeoutSeconds(json.RawMessage(raw), false); err == nil && hasValue {
+			if seconds > ExecMaxTimeoutSeconds {
+				seconds = ExecMaxTimeoutSeconds
+			}
+			return time.Duration(seconds) * time.Second
+		}
+	}
+	if t.timeout > 0 {
+		return t.timeout
+	}
+	return time.Duration(ExecDefaultTimeoutSeconds) * time.Second
+}
+
 // matchesAny checks if a command matches any pattern in the list.
 func matchesAny(command string, patterns []*regexp.Regexp) bool {
 	for _, p := range patterns {
@@ -428,8 +535,17 @@ func posixShellPath() (string, error) {
 // ctx cancellation (e.g. agent abort) triggers SIGTERM → 3s grace → SIGKILL on the
 // entire process group so forked children are also cleaned up (no orphans).
 func (t *ExecTool) executeOnHost(ctx context.Context, command, cwd string) *Result {
-	ctx, cancel := context.WithTimeout(ctx, t.timeout)
+	timeout := t.effectiveTimeout(ctx)
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+
+	// Pre-flight cmd.Dir validation. On Linux, Go's clone+chdir+execve failure
+	// path collapses every child-side error into "fork/exec PATH: <errno-string>"
+	// — so a missing cmd.Dir surfaces as if the shell binary itself were missing.
+	// Catch this case explicitly so the error names the real culprit.
+	if err := validateExecCwd(cwd); err != nil {
+		return ErrorResult(fmt.Sprintf("exec: %v", err))
+	}
 
 	// Use plain exec.Command (not CommandContext) so we control the kill sequence.
 	// CommandContext would SIGKILL only the direct child, leaving forked grandchildren alive.
@@ -477,7 +593,7 @@ func (t *ExecTool) executeOnHost(ctx context.Context, command, cwd string) *Resu
 	select {
 	case err := <-done:
 		// Normal completion (success or non-zero exit).
-		return buildHostResult(err, stdout, stderr, ctx, t.timeout)
+		return buildHostResult(err, stdout, stderr, ctx, timeout)
 
 	case <-ctx.Done():
 		// Context cancelled or timed out — kill the process group gracefully then forcefully.
@@ -491,7 +607,7 @@ func (t *ExecTool) executeOnHost(ctx context.Context, command, cwd string) *Resu
 			<-done
 		}
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return ErrorResult(fmt.Sprintf("command timed out after %s", t.timeout))
+			return ErrorResult(fmt.Sprintf("command timed out after %s", timeout))
 		}
 		return ErrorResult("command aborted")
 	}
