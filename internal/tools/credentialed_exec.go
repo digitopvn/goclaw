@@ -475,14 +475,8 @@ func (t *ExecTool) executeCredentialed(ctx context.Context, cred *store.SecureCL
 			if len(inj.ScrubValues) > 0 {
 				AddScrubValuesCtx(ctx, inj.ScrubValues...)
 			}
-			slog.Warn("security.system_env_injection",
-				"adapter", adapter.Name(),
-				"user_id", store.CredentialUserIDFromContext(ctx),
-				"binary", binary,
-				"env_keys", sortedKeys(inj.Env),
-				"argv_prefix_len", len(inj.ArgvPrefix),
-				"host_scope_hash", hashHostScope(cred.UserHostScope),
-			)
+			emitSystemEnvInjectionAudit(adapter.Name(), binary,
+				store.CredentialUserIDFromContext(ctx), inj, cred.UserHostScope)
 		}
 	}
 

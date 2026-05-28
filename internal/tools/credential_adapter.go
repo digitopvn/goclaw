@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"log/slog"
 	"sort"
 	"sync"
 
@@ -107,4 +108,31 @@ func sortedKeys(m map[string]string) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+// emitSystemEnvInjectionAudit is the single source of truth for the
+// `security.system_env_injection` slog line. Operators grep for this event
+// name in their log aggregator (see docs/09-security.md). The field schema is
+// pinned by `TestEmitSystemEnvInjectionAudit_FieldSchema` — any change here
+// must update both that test and the operator-facing docs.
+//
+// Fields:
+//   - adapter:           adapter name (e.g. "git", "passthrough")
+//   - binary:            binary name (e.g. "git", "gh")
+//   - user_id:           tenant user UUID (or empty for global-only contexts)
+//   - env_keys:          sorted env-var NAMES (never values)
+//   - argv_prefix_len:   number of argv elements prepended (NOT their content)
+//   - host_scope_hash:   SHA-256 first 8 hex chars of host_scope (or "none")
+func emitSystemEnvInjectionAudit(adapter, binary, userID string, inj *Injection, hostScope *string) {
+	if inj == nil {
+		return
+	}
+	slog.Warn("security.system_env_injection",
+		"adapter", adapter,
+		"user_id", userID,
+		"binary", binary,
+		"env_keys", sortedKeys(inj.Env),
+		"argv_prefix_len", len(inj.ArgvPrefix),
+		"host_scope_hash", hashHostScope(hostScope),
+	)
 }
