@@ -458,10 +458,13 @@ func (t *ExecTool) executeCredentialed(ctx context.Context, cred *store.SecureCL
 			if inj.Cleanup != nil {
 				defer func() {
 					if cerr := inj.Cleanup(); cerr != nil {
+						// Scrub cerr — os.Remove errors embed the full tmpfile
+						// path, which is in inj.ScrubValues precisely because
+						// it's adapter-sensitive (e.g. SSH key keypath).
 						slog.Warn("security.adapter_cleanup_failed",
 							"adapter", adapter.Name(),
 							"binary", binary,
-							"error", cerr.Error(),
+							"error", ScrubCredentialsCtx(ctx, cerr.Error()),
 						)
 					}
 				}()
@@ -642,13 +645,13 @@ func (t *ExecTool) executeCredentialedSandbox(ctx context.Context, absPath strin
 		output += "STDERR:\n" + result.Stderr
 	}
 	if result.ExitCode != 0 {
-		scrubbed := ScrubCredentials(output)
+		scrubbed := ScrubCredentialsCtx(ctx, output)
 		return credentialedExecFailError(absPath, args, result.ExitCode, scrubbed+MaybeSandboxHint(result.ExitCode, scrubbed))
 	}
 	if output == "" {
 		output = "(command completed with no output)"
 	}
-	output = ScrubCredentials(output)
+	output = ScrubCredentialsCtx(ctx, output)
 	output = capExecOutput(output, execMaxOutputChars)
 	return SilentResult(output)
 }
@@ -720,13 +723,13 @@ func formatCredentialedResult(binary string, args []string,
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			exitCode = exitErr.ExitCode()
 		}
-		return credentialedExecFailError(binary, args, exitCode, ScrubCredentials(output))
+		return credentialedExecFailError(binary, args, exitCode, ScrubCredentialsCtx(ctx, output))
 	}
 
 	if output == "" {
 		output = "(command completed with no output)"
 	}
-	output = ScrubCredentials(output)
+	output = ScrubCredentialsCtx(ctx, output)
 	output = capExecOutput(output, execMaxOutputChars)
 	return SilentResult(output)
 }
