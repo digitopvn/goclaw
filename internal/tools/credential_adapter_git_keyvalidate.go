@@ -24,6 +24,12 @@ import (
 // localized i18n message without string-matching.
 var ErrSSHKeyPassphraseUnsupported = errors.New("ssh key: passphrase-protected keys not supported in v1")
 
+// ValidatePATToken is the exported alias of validateTokenShape — HTTP/WS
+// save handlers call this BEFORE encrypting so a malformed token (empty,
+// oversize, control chars) is rejected with a localized error before any
+// DB write or audit emit. Phase 3's runtime check still defends in depth.
+func ValidatePATToken(tok string) error { return validateTokenShape(tok) }
+
 // ValidateSSHKey parses the supplied PEM with x/crypto/ssh. Any non-nil
 // error blocks the save: a key that fails to parse here will also fail at
 // `ssh -i` time, and we want the diagnostic to happen at save (where the

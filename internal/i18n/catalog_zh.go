@@ -316,6 +316,10 @@ func init() {
 		MsgGitCredHostUserinfoRejected:     "git URL 中嵌入的 userinfo 因含义不明被拒绝",
 		MsgGitCredSSHPassphraseUnsupported: "暂不支持带密码短语的 SSH 私钥；请先用 `ssh-keygen -p` 移除密码短语再保存",
 		MsgGitCredSSHKeyInvalid:            "SSH 私钥无效:%s",
+		MsgGitCredHostScopeRequired:        "credential_type %s 需要 host_scope",
+		MsgGitCredHostScopeInvalid:         "host_scope %q 不是有效的主机名",
+		MsgGitCredBlobMissingField:         "凭据 blob 缺少必填字段 %q",
+		MsgGitCredUnsupportedCredType:      "不支持的 credential_type %q",
 
 		// Message tool cross-target forward notice
 		MessageCrossTargetForwarded: "📤 已按请求转发至 %s:%q",

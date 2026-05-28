@@ -348,4 +348,8 @@ const (
 	MsgGitCredHostUserinfoRejected = "error.git_cred_host_userinfo_rejected" // "git URL with embedded userinfo is rejected as ambiguous"
 	MsgGitCredSSHPassphraseUnsupported = "error.git_cred_ssh_passphrase_unsupported" // "passphrase-protected SSH keys not supported in v1"
 	MsgGitCredSSHKeyInvalid            = "error.git_cred_ssh_key_invalid"             // "SSH private key invalid: %s"
+	MsgGitCredHostScopeRequired        = "error.git_cred_host_scope_required"         // "host_scope required for credential_type %s"
+	MsgGitCredHostScopeInvalid         = "error.git_cred_host_scope_invalid"          // "host_scope %q is not a valid hostname"
+	MsgGitCredBlobMissingField         = "error.git_cred_blob_missing_field"          // "blob missing required field %q"
+	MsgGitCredUnsupportedCredType      = "error.git_cred_unsupported_cred_type"       // "credential_type %q is not supported"
 )

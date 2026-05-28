@@ -316,6 +316,10 @@ func init() {
 		MsgGitCredHostUserinfoRejected:     "URL git chứa userinfo nhúng bị từ chối vì gây nhập nhằng",
 		MsgGitCredSSHPassphraseUnsupported: "khóa SSH có passphrase chưa được hỗ trợ; chạy `ssh-keygen -p` để gỡ passphrase trước khi lưu",
 		MsgGitCredSSHKeyInvalid:            "khóa riêng SSH không hợp lệ: %s",
+		MsgGitCredHostScopeRequired:        "host_scope là bắt buộc cho credential_type %s",
+		MsgGitCredHostScopeInvalid:         "host_scope %q không phải là tên máy chủ hợp lệ",
+		MsgGitCredBlobMissingField:         "blob credential thiếu trường bắt buộc %q",
+		MsgGitCredUnsupportedCredType:      "credential_type %q không được hỗ trợ",
 
 		// Message tool cross-target forward notice
 		MessageCrossTargetForwarded: "📤 Đã forward sang %s theo yêu cầu: %q",

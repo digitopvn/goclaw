@@ -316,6 +316,10 @@ func init() {
 		MsgGitCredHostUserinfoRejected:     "git URL with embedded userinfo is rejected as ambiguous",
 		MsgGitCredSSHPassphraseUnsupported: "passphrase-protected SSH keys are not supported; remove the passphrase with `ssh-keygen -p` before saving",
 		MsgGitCredSSHKeyInvalid:            "SSH private key invalid: %s",
+		MsgGitCredHostScopeRequired:        "host_scope is required for credential_type %s",
+		MsgGitCredHostScopeInvalid:         "host_scope %q is not a valid hostname",
+		MsgGitCredBlobMissingField:         "credential blob is missing required field %q",
+		MsgGitCredUnsupportedCredType:      "credential_type %q is not supported",
 
 		// Message tool cross-target forward notice
 		MessageCrossTargetForwarded: "📤 Forwarded to %s as requested: %q",
