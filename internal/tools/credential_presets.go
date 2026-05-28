@@ -13,6 +13,12 @@ type CLIPreset struct {
 	DenyVerbose []string    `json:"deny_verbose"`
 	Timeout     int         `json:"timeout"`
 	Tips        string      `json:"tips"`
+	// AdapterName defaults the binary row's adapter_name column at create
+	// time. Empty (default) → passthrough adapter (legacy env injection).
+	// Set to e.g. "git" by typed-credential presets (Phase 3+). Runtime
+	// adapter lookup reads the DB column, not this field — so operator
+	// overrides post-create take precedence.
+	AdapterName string `json:"adapter_name,omitempty"`
 }
 
 // EnvVarDef describes an environment variable required by a CLI tool.
@@ -93,6 +99,18 @@ var CLIPresets = map[string]CLIPreset{
 		DenyVerbose: nil,
 		Timeout:     300,
 		Tips:        "Use -json flag for structured output",
+	},
+	"psql": {
+		BinaryName:  "psql",
+		Description: "PostgreSQL CLI — framework-validation preset for the typed-credential adapter (Phase 2b). UI cred-type picker lands in v2; until then operators wire `pg_password_file` credentials via API.",
+		EnvVars: []EnvVarDef{
+			{Name: "PGPASSFILE", Desc: "Path to .pgpass file (auto-materialized by adapter when credential_type='pg_password_file')", IsFile: true, Optional: true},
+		},
+		DenyArgs:    []string{`-c\s+["']?(DROP|TRUNCATE)\b`, `\\!`, `\\copy\s+.*FROM\s+PROGRAM`},
+		DenyVerbose: nil,
+		Timeout:     60,
+		Tips:        "Use -A -t for plain output suitable for piping",
+		AdapterName: "psql",
 	},
 }
 

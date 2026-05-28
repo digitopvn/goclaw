@@ -357,6 +357,10 @@ func matchesBinaryVerbose(args []string, denyPatternsJSON json.RawMessage) strin
 func (t *ExecTool) executeCredentialed(ctx context.Context, cred *store.SecureCLIBinary,
 	binary string, args []string, cwd string, sandboxKey string, rawCommand string) *Result {
 
+	// Attach a per-request scrub bag so adapter-derived secrets stay isolated
+	// from other tenants/goroutines (see scrub.go WithScrubBag).
+	ctx = WithScrubBag(ctx)
+
 	// Step 0: Reject NUL bytes (defense-in-depth — also checked in Execute()).
 	if strings.ContainsRune(rawCommand, '\x00') {
 		return ErrorResult("command contains invalid NUL byte")
@@ -423,11 +427,86 @@ func (t *ExecTool) executeCredentialed(ctx context.Context, cred *store.SecureCL
 		timeout = 30 * time.Second
 	}
 
+	// Step 6b: Resolve adapter from DB row (source of truth, NOT CLIPresets map).
+	// Passthrough is the default and a no-op — preserves bit-for-bit behavior
+	// for every legacy preset.
+	adapterName := ""
+	if cred.AdapterName != nil {
+		adapterName = *cred.AdapterName
+	}
+	adapter := AdapterFor(adapterName)
+
+	// Sandbox is incompatible with non-passthrough adapters in v1 — they need
+	// to materialize ephemeral files (SSH key, PAT helper) on the host fs that
+	// the sandboxed process can't read. Reject early before any ephemerals
+	// would be created.
+	inSandbox := t.sandboxMgr != nil && sandboxKey != ""
+	if inSandbox && adapter.Name() != "passthrough" {
+		return ErrorResult(fmt.Sprintf("credentialed exec: %q adapter not supported in sandbox mode yet", adapter.Name()))
+	}
+
+	if adapter.ShouldInject(args) {
+		userCred := userCredFromBinary(ctx, cred)
+		inj, err := adapter.Prepare(ctx, cred, userCred, args)
+		if err != nil {
+			return ErrorResult(ScrubCredentialsCtx(ctx, fmt.Sprintf("credentialed exec: %s adapter prepare failed: %v", adapter.Name(), err)))
+		}
+		if inj != nil {
+			if inj.Cleanup != nil {
+				defer func() {
+					if cerr := inj.Cleanup(); cerr != nil {
+						slog.Warn("security.adapter_cleanup_failed",
+							"adapter", adapter.Name(),
+							"binary", binary,
+							"error", cerr.Error(),
+						)
+					}
+				}()
+			}
+			if len(inj.ArgvPrefix) > 0 {
+				args = append(append([]string{}, inj.ArgvPrefix...), args...)
+			}
+			for k, v := range inj.Env {
+				envMap[k] = v
+			}
+			if len(inj.ScrubValues) > 0 {
+				AddScrubValuesCtx(ctx, inj.ScrubValues...)
+			}
+			slog.Warn("security.system_env_injection",
+				"adapter", adapter.Name(),
+				"user_id", store.CredentialUserIDFromContext(ctx),
+				"binary", binary,
+				"env_keys", sortedKeys(inj.Env),
+				"argv_prefix_len", len(inj.ArgvPrefix),
+				"host_scope_hash", hashHostScope(cred.UserHostScope),
+			)
+		}
+	}
+
 	// Step 7: Execute — sandbox or host
-	if t.sandboxMgr != nil && sandboxKey != "" {
+	if inSandbox {
 		return t.executeCredentialedSandbox(ctx, absPath, args, cwd, sandboxKey, envMap, timeout)
 	}
 	return t.executeCredentialedHost(ctx, absPath, args, cwd, envMap, timeout)
+}
+
+// userCredFromBinary synthesizes a *SecureCLIUserCredential from the fields
+// LookupByBinary's LEFT JOIN populated on the binary row. Returns nil when
+// no user credential exists (UserEnv empty + no typed metadata).
+func userCredFromBinary(ctx context.Context, bin *store.SecureCLIBinary) *store.SecureCLIUserCredential {
+	if bin == nil {
+		return nil
+	}
+	if len(bin.UserEnv) == 0 && bin.UserCredentialType == nil && bin.UserHostScope == nil {
+		return nil
+	}
+	return &store.SecureCLIUserCredential{
+		BinaryID:       bin.ID,
+		UserID:         store.CredentialUserIDFromContext(ctx),
+		EncryptedEnv:   bin.UserEnv,
+		CredentialType: bin.UserCredentialType,
+		HostScope:      bin.UserHostScope,
+	}
 }
 
 func mergeCredentialedEnv(cred *store.SecureCLIBinary) (map[string]string, error) {
