@@ -447,7 +447,10 @@ func (t *ExecTool) executeCredentialed(ctx context.Context, cred *store.SecureCL
 
 	if adapter.ShouldInject(args) {
 		userCred := userCredFromBinary(ctx, cred)
-		inj, err := adapter.Prepare(ctx, cred, userCred, args)
+		// Plant the resolved exec cwd so adapters (e.g. git) can run any
+		// pre-flight sub-exec from the right repo, not goclaw's daemon CWD.
+		prepareCtx := WithExecCwd(ctx, cwd)
+		inj, err := adapter.Prepare(prepareCtx, cred, userCred, args)
 		if err != nil {
 			return ErrorResult(ScrubCredentialsCtx(ctx, fmt.Sprintf("credentialed exec: %s adapter prepare failed: %v", adapter.Name(), err)))
 		}

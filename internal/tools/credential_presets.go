@@ -100,6 +100,33 @@ var CLIPresets = map[string]CLIPreset{
 		Timeout:     300,
 		Tips:        "Use -json flag for structured output",
 	},
+	"git": {
+		BinaryName:  "git",
+		Description: "Git with credential adapter (PAT or SSH host-scoped credentials managed by goclaw)",
+		// Credential storage is adapter-managed (encrypted_env carries the
+		// typed blob), not env-paste. Keep EnvVars empty so the UI doesn't
+		// offer a free-text PAT field that would land in plain env.
+		EnvVars: nil,
+		// Deny patterns block the agent from:
+		//   - persisting tokens via `git config --global/--system`
+		//   - installing a leaking credential helper
+		//   - starting an unauthenticated git daemon
+		//   - overriding the adapter's host-scoped `http.*` header via `-c`
+		//   - shadowing core.sshCommand to bypass the adapter's SSH wrapper
+		// Patterns are case-insensitive because git config keys themselves are.
+		DenyArgs: []string{
+			`(?i)config\s+(--global|--system)`,
+			`(?i)credential-helper`,
+			`(?i)\bdaemon\b`,
+			`(?i)-c\s+http\.`,
+			`(?i)-c\s+credential\.`,
+			`(?i)-c\s+core\.sshcommand`,
+		},
+		DenyVerbose: nil,
+		Timeout:     300,
+		Tips:        "Adapter handles auth automatically for clone/fetch/pull/push/submodule based on stored credential type and host scope.",
+		AdapterName: "git",
+	},
 	"psql": {
 		BinaryName:  "psql",
 		Description: "PostgreSQL CLI — framework-validation preset for the typed-credential adapter (Phase 2b). UI cred-type picker lands in v2; until then operators wire `pg_password_file` credentials via API.",

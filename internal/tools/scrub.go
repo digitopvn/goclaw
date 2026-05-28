@@ -127,6 +127,27 @@ type scrubBag struct {
 
 type scrubBagKey struct{}
 
+type execCwdKey struct{}
+
+// WithExecCwd returns a context carrying the working directory the
+// credentialed exec will use. Adapters consult this so any pre-flight
+// sub-exec (e.g. `git config --get remote.origin.url`) runs inside the
+// caller's repo, not goclaw's daemon CWD.
+func WithExecCwd(ctx context.Context, cwd string) context.Context {
+	if cwd == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, execCwdKey{}, cwd)
+}
+
+// ExecCwdFromContext returns the cwd planted by WithExecCwd, or empty.
+func ExecCwdFromContext(ctx context.Context) string {
+	if s, ok := ctx.Value(execCwdKey{}).(string); ok {
+		return s
+	}
+	return ""
+}
+
 // WithScrubBag returns a context carrying a fresh per-request scrub list.
 // Call at the top of executeCredentialed; pass the returned ctx downstream.
 func WithScrubBag(ctx context.Context) context.Context {
