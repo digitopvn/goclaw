@@ -1,7 +1,7 @@
 ---
 phase: 2
 title: "Thread Backfill Implementation"
-status: pending
+status: complete
 priority: P1
 effort: "3h"
 dependencies: [1]
@@ -57,10 +57,10 @@ Use Discord REST only for thread messages before the triggering message. Reverse
 
 ## Success Criteria
 
-- [ ] Phase 1 tests pass.
-- [ ] Backfill is invoked only for `Channel.IsThread()` and mentioned/reply-to-bot triggers.
-- [ ] Attachment download failures skip that attachment, not the whole run.
-- [ ] No schema/config migration required.
+- [x] Phase 1 tests pass.
+- [x] Backfill is invoked only for `Channel.IsThread()` and mentioned/reply-to-bot triggers.
+- [x] Attachment download failures skip that attachment, not the whole run.
+- [x] No schema/config migration required.
 
 ## Risk Assessment
 

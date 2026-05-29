@@ -1,7 +1,7 @@
 ---
 title: "Discord Thread History Attachment Backfill"
 description: "TDD plan for Discord thread REST backfill so a newly mentioned bot can see prior thread messages and attachments."
-status: pending
+status: complete
 priority: P2
 branch: "codex/issue-69-discord-thread-history-attachments"
 tags: [discord, threads, media, tdd, issue-69]
@@ -24,10 +24,10 @@ Non-goals: no global Discord group/channel history backfill, no schema migration
 
 | Phase | Name | Status |
 |-------|------|--------|
-| 1 | [Characterization Tests](./phase-01-characterization-tests.md) | Pending |
-| 2 | [Thread Backfill Implementation](./phase-02-thread-backfill-implementation.md) | Pending |
-| 3 | [Media Tool Integration Tests](./phase-03-media-tool-integration-tests.md) | Pending |
-| 4 | [Docs and Verification](./phase-04-docs-and-verification.md) | Pending |
+| 1 | [Characterization Tests](./phase-01-characterization-tests.md) | Complete |
+| 2 | [Thread Backfill Implementation](./phase-02-thread-backfill-implementation.md) | Complete |
+| 3 | [Media Tool Integration Tests](./phase-03-media-tool-integration-tests.md) | Complete |
+| 4 | [Docs and Verification](./phase-04-docs-and-verification.md) | Complete |
 
 ## Dependencies
 
@@ -40,12 +40,12 @@ Non-goals: no global Discord group/channel history backfill, no schema migration
 
 ## Success Criteria
 
-- [ ] In a Discord thread, message A before bot mention with image/doc attachment becomes available to the run triggered by message B.
-- [ ] Agent receives prior text context and prior attachment files.
-- [ ] `read_image` can analyze prior image; `read_document` can resolve prior document.
-- [ ] Backfill runs only for Discord threads when the bot is addressed.
-- [ ] Backfill is bounded by message count, attachment count, file size, and timeout.
-- [ ] Missing Discord history permission is graceful: no crash, current message still processed.
+- [x] In a Discord thread, message A before bot mention with image/doc attachment becomes available to the run triggered by message B.
+- [x] Agent receives prior text context and prior attachment files.
+- [x] `read_image` can analyze prior image; `read_document` can resolve prior document.
+- [x] Backfill runs only for Discord threads when the bot is addressed.
+- [x] Backfill is bounded by message count, attachment count, file size, and timeout.
+- [x] Missing Discord history permission is graceful: no crash, current message still processed.
 
 ## Implementation Boundary
 

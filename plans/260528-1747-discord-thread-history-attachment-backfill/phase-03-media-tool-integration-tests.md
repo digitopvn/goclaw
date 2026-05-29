@@ -1,7 +1,7 @@
 ---
 phase: 3
 title: "Media Tool Integration Tests"
-status: pending
+status: complete
 priority: P1
 effort: "3h"
 dependencies: [2]
@@ -42,9 +42,9 @@ The Discord handler publishes `bus.MediaFile`. Agent loop persists those via `pe
 
 ## Success Criteria
 
-- [ ] Tests prove `read_image` has image context or path access for prior thread image.
-- [ ] Tests prove `read_document` can resolve prior thread document ref.
-- [ ] No fake string-only acceptance; actual files are persisted/resolved.
+- [x] Tests prove `read_image` has image context or path access for prior thread image.
+- [x] Tests prove `read_document` can resolve prior thread document ref.
+- [x] No fake string-only acceptance; actual files are persisted/resolved.
 
 ## Risk Assessment
 

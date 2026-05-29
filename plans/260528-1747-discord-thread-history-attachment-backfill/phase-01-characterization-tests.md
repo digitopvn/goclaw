@@ -1,7 +1,7 @@
 ---
 phase: 1
 title: "Characterization Tests"
-status: pending
+status: complete
 priority: P1
 effort: "2h"
 dependencies: []
@@ -41,10 +41,10 @@ Target the handler boundary. Build a `discordgo.Session` pointed at a local test
 
 ## Success Criteria
 
-- [ ] Tests fail on current code for missing thread backfill.
-- [ ] Tests assert order: historical messages oldest-to-newest, then current message.
-- [ ] Tests assert media count and filenames/MIME where available.
-- [ ] No live credentials or real Discord calls.
+- [x] Tests fail on current code for missing thread backfill.
+- [x] Tests assert order: historical messages oldest-to-newest, then current message.
+- [x] Tests assert media count and filenames/MIME where available.
+- [x] No live credentials or real Discord calls.
 
 ## Risk Assessment
 

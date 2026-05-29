@@ -1,7 +1,7 @@
 ---
 phase: 4
 title: "Docs and Verification"
-status: pending
+status: complete
 priority: P2
 effort: "2h"
 dependencies: [3]
@@ -41,10 +41,10 @@ Docs live in existing channel docs. Verification follows repo checklist but scop
 
 ## Success Criteria
 
-- [ ] Docs mention Discord thread-only scope.
-- [ ] Focused tests pass.
-- [ ] `go build ./...` passes.
-- [ ] `go build -tags sqliteonly ./...` passes.
+- [x] Docs mention Discord thread-only scope.
+- [x] Focused tests pass.
+- [x] `go build ./...` passes.
+- [x] `go build -tags sqliteonly ./...` passes.
 - [ ] GitHub issue reply includes summary and verification.
 
 ## Risk Assessment
