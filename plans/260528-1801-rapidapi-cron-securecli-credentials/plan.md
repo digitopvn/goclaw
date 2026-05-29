@@ -1,7 +1,7 @@
 ---
 title: "RapidAPI cron SecureCLI credential fix"
 description: "Diagnose and fix RapidAPI CLI credential injection from cron-triggered agent turns without changing cron credential architecture."
-status: pending
+status: in_progress
 priority: P1
 effort: 6h
 issue: 74
@@ -25,7 +25,7 @@ Broader cron credential context is already fixed by storing `payload.credentialU
 
 | Phase | Name | Status |
 |-------|------|--------|
-| 1 | [Diagnose Current RapidAPI Credential Path](./phase-01-diagnose-current-rapidapi-credential-path.md) | Pending |
+| 1 | [Diagnose Current RapidAPI Credential Path](./phase-01-diagnose-current-rapidapi-credential-path.md) | Complete |
 | 2 | [Add RapidAPI Preset and Credential Diagnostics](./phase-02-add-rapidapi-preset-and-credential-diagnostics.md) | Pending |
 | 3 | [Validate Cron Smoke and Issue Handoff](./phase-03-validate-cron-smoke-and-issue-handoff.md) | Pending |
 

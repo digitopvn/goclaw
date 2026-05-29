@@ -1,7 +1,7 @@
 ---
 phase: 1
 title: "Diagnose Current RapidAPI Credential Path"
-status: pending
+status: complete
 priority: P1
 effort: "1.5h"
 dependencies: []
@@ -28,6 +28,11 @@ Prove the concrete failure mode before code. Current code already preserves cron
 - `makeCronJobHandler` injects that identity into cron run context.
 - `lookupCredentialedBinary` resolves per-user env through `CredentialUserIDFromContext`.
 - No built-in RapidAPI preset exists today.
+- 2026-05-29 verification:
+  - #54 context path is present: cron handler injects `payload.credentialUserId` before scheduling.
+  - Redaction path is present: response copies clear `payload.credentialUserId`.
+  - `rapidapi` is absent from `CLIPresets`, so operators get no guided `RAPIDAPI_KEY` setup.
+  - Credentialed exec merges base/user env but does not validate required preset env keys before process execution.
 
 ## Requirements
 
@@ -76,17 +81,31 @@ cron.create ctx -> payload.credentialUserId -> makeCronJobHandler ctx -> exec Lo
 
 ## Todo List
 
-- [ ] Confirm current branch contains #54 fix.
-- [ ] Confirm `rapidapi` preset absence.
-- [ ] Inspect sanitized SecureCLI config path.
+- [x] Confirm current branch contains #54 fix.
+- [x] Confirm `rapidapi` preset absence.
+- [x] Inspect sanitized SecureCLI config path.
 - [ ] Inspect failing cron payload shape if available.
-- [ ] Record exact failure class.
+- [x] Record exact failure class.
 
 ## Success Criteria
 
-- [ ] Root cause class documented with code/file evidence.
-- [ ] No secret material displayed or persisted.
-- [ ] Tests-before list finalized for Phase 2.
+- [x] Root cause class documented with code/file evidence.
+- [x] No secret material displayed or persisted.
+- [x] Tests-before list finalized for Phase 2.
+
+## Diagnosis Result
+
+Root cause class: product support gap plus weak diagnostics, not missing cron identity plumbing.
+
+Code evidence:
+
+- `cmd/gateway_cron.go` injects `store.WithCredentialUserID` when `job.Payload.CredentialUserID` is present.
+- `internal/store/cron_store.go` redacts `CredentialUserID` from response-safe cron jobs.
+- `internal/tools/credentialed_exec.go` uses `store.CredentialUserIDFromContext(ctx)` for `LookupByBinary`.
+- `internal/tools/credential_presets.go` has no `rapidapi` preset.
+- `internal/tools/credentialed_exec.go` returns downstream CLI output when env is empty, so a RapidAPI failure surfaces as raw `RAPIDAPI_KEY required` instead of a GoClaw credential diagnostic.
+
+Live DB inspection was not run in this phase because no operator-approved credentialed environment or target cron job was provided. Phase 2 proceeds with code-level regression coverage for the confirmed local gap.
 
 ## Risk Assessment
 
