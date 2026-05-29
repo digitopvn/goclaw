@@ -21,7 +21,7 @@ Fix Telegram app-recorded voice messages so `<media:voice>` is treated as audio 
 - [x] [Phase 01 - Characterize Failure](phase-01-characterize-telegram-voice-failure.md)
 - [x] [Phase 02 - Fix Telegram STT Routing](phase-02-fix-telegram-stt-routing.md)
 - [x] [Phase 03 - Harden Read Audio Fallback](phase-03-harden-read-audio-fallback.md)
-- [ ] [Phase 04 - Tests and Docs](phase-04-tests-and-docs.md)
+- [x] [Phase 04 - Tests and Docs](phase-04-tests-and-docs.md)
 
 ## Dependencies
 - No schema migration expected.
@@ -35,5 +35,4 @@ Fix Telegram app-recorded voice messages so `<media:voice>` is treated as audio 
 - Regression tests cover Telegram voice media, STT channel context, and `read_audio` unsupported fallback.
 
 ## Open Questions
-- Should Telegram STT be governed by `builtin_tools[stt].settings.providers`, or should legacy `stt_proxy_url` remain channel override as code currently does?
-- Do we want ffmpeg transcoding now, or provider-path hardening first with conversion deferred unless a selected STT provider rejects OGG/Opus?
+- None.

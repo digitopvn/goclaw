@@ -2,7 +2,7 @@
 
 ## Overview
 - Priority: P1
-- Status: Pending
+- Status: Complete
 - Purpose: Verify fix and sync public docs.
 
 ## Requirements
@@ -21,6 +21,11 @@
 2. If shared code changes, run `go test ./internal/agent ./internal/channels/... ./internal/tools`.
 3. Update docs after tests pass.
 4. Record issue #85 in changelog with root cause and validation commands.
+
+## Implementation Notes
+- Updated channel docs to use actual provider IDs: `elevenlabs` and `proxy`.
+- Documented Telegram voice MIME preservation and platform-type STT override behavior.
+- Documented `read_audio` fail-closed behavior for unsupported audio routes.
 
 ## Success Criteria
 - Tests pass locally.
