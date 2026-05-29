@@ -1,7 +1,7 @@
 ---
 phase: 1
 title: "TDD Contract and Threat Model"
-status: pending
+status: complete
 priority: P1
 effort: "2h"
 dependencies: []
@@ -68,10 +68,10 @@ Lock the tool contract and threat model with failing tests before implementation
 
 ## Success Criteria
 
-- [ ] Tests fail for missing `files` support before implementation.
-- [ ] Tests cover manage permission path by using existing owner/manage grant helpers where practical.
-- [ ] Path rejection tests prove no unsafe file lands on disk.
-- [ ] Test names describe behavior, not plan/finding labels.
+- [x] Tests fail for missing `files` support before implementation.
+- [x] Tests cover manage permission path by using existing owner/manage grant helpers where practical.
+- [x] Path rejection tests prove no unsafe file lands on disk.
+- [x] Test names describe behavior, not plan/finding labels.
 
 ## Risk Assessment
 

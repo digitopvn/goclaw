@@ -1,7 +1,7 @@
 ---
 title: "Skill Manage Companion Files"
 description: "TDD plan for issue #72: let skill_manage create new immutable skill versions with SKILL.md plus companion files."
-status: pending
+status: in_progress
 priority: P2
 branch: "codex/issue-72-skill-manage-files-plan"
 tags: [skills, tools, tdd, issue-72]
@@ -36,9 +36,9 @@ Approved contract:
 
 | Phase | Name | Status |
 |-------|------|--------|
-| 1 | [TDD Contract and Threat Model](./phase-01-tdd-contract-and-threat-model.md) | Pending |
-| 2 | [Skill Manage File Payload Implementation](./phase-02-skill-manage-file-payload-implementation.md) | Pending |
-| 3 | [Runtime Readback and Documentation](./phase-03-runtime-readback-and-documentation.md) | Pending |
+| 1 | [TDD Contract and Threat Model](./phase-01-tdd-contract-and-threat-model.md) | Complete |
+| 2 | [Skill Manage File Payload Implementation](./phase-02-skill-manage-file-payload-implementation.md) | Complete |
+| 3 | [Runtime Readback and Documentation](./phase-03-runtime-readback-and-documentation.md) | Complete |
 | 4 | [Validation and Issue Handoff](./phase-04-validation-and-issue-handoff.md) | Pending |
 
 ## Dependencies

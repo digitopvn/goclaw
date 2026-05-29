@@ -1,7 +1,7 @@
 ---
 phase: 3
 title: "Runtime Readback and Documentation"
-status: pending
+status: complete
 priority: P2
 effort: "2h"
 dependencies: [2]
@@ -51,10 +51,10 @@ No new runtime API should be needed. Existing file APIs derive the version direc
 
 ## Success Criteria
 
-- [ ] Existing file viewer API can list/read added reference files.
-- [ ] Docs describe `files` payload and security constraints.
-- [ ] Docs explicitly say UI editor remains out of scope; use ZIP upload in UI.
-- [ ] No stale statement remains that `skill_manage` is strictly `SKILL.md`-only.
+- [x] Existing file viewer API can list/read added reference files.
+- [x] Docs describe `files` payload and security constraints.
+- [x] Docs explicitly say UI editor remains out of scope; use ZIP upload in UI.
+- [x] No stale statement remains that `skill_manage` is strictly `SKILL.md`-only.
 
 ## Risk Assessment
 

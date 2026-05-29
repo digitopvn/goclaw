@@ -1,7 +1,7 @@
 ---
 phase: 2
 title: "Skill Manage File Payload Implementation"
-status: pending
+status: complete
 priority: P1
 effort: "4h"
 dependencies: [1]
@@ -90,11 +90,11 @@ Validation rules:
 
 ## Success Criteria
 
-- [ ] Phase 1 tests pass.
-- [ ] `skill_manage patch` can add `references/*.md` without filesystem staging.
-- [ ] `skill_manage patch` with only `visibility` still does not create a new version.
-- [ ] Invalid file payloads fail without partial durable writes.
-- [ ] Code stays in existing tool boundary; no broad refactor.
+- [x] Phase 1 tests pass.
+- [x] `skill_manage patch` can add `references/*.md` without filesystem staging.
+- [x] `skill_manage patch` with only `visibility` still does not create a new version.
+- [x] Invalid file payloads fail without partial durable writes.
+- [x] Code stays in existing tool boundary; no broad refactor.
 
 ## Risk Assessment
 
