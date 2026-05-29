@@ -45,7 +45,7 @@ Docs live in existing channel docs. Verification follows repo checklist but scop
 - [x] Focused tests pass.
 - [x] `go build ./...` passes.
 - [x] `go build -tags sqliteonly ./...` passes.
-- [ ] GitHub issue reply includes summary and verification.
+- [x] GitHub issue reply includes summary and verification.
 
 ## Risk Assessment
 
