@@ -1,7 +1,7 @@
 ---
 title: "RapidAPI cron SecureCLI credential fix"
 description: "Diagnose and fix RapidAPI CLI credential injection from cron-triggered agent turns without changing cron credential architecture."
-status: in_progress
+status: complete
 priority: P1
 effort: 6h
 issue: 74
@@ -27,7 +27,7 @@ Broader cron credential context is already fixed by storing `payload.credentialU
 |-------|------|--------|
 | 1 | [Diagnose Current RapidAPI Credential Path](./phase-01-diagnose-current-rapidapi-credential-path.md) | Complete |
 | 2 | [Add RapidAPI Preset and Credential Diagnostics](./phase-02-add-rapidapi-preset-and-credential-diagnostics.md) | Complete |
-| 3 | [Validate Cron Smoke and Issue Handoff](./phase-03-validate-cron-smoke-and-issue-handoff.md) | Pending |
+| 3 | [Validate Cron Smoke and Issue Handoff](./phase-03-validate-cron-smoke-and-issue-handoff.md) | Complete |
 
 ## Dependencies
 
@@ -56,6 +56,11 @@ Broader cron credential context is already fixed by storing `payload.credentialU
 - `go test ./internal/tools ./internal/store ./cmd`
 - Targeted cron/SecureCLI regression tests before implementation changes.
 - Manual or documented smoke: cron-created-after-fix invokes harmless `rapidapi` command and does not print secret.
+
+## Completion Notes
+
+- 2026-05-29: all code/test/build gates passed, including PG and SQLite builds, `go vet`, and integration race suite with local PG test DB.
+- Real RapidAPI cron smoke remains operator-gated because this session did not include an approved RapidAPI key, target SecureCLI grant, or harmless endpoint.
 
 ## Unresolved Questions
 
