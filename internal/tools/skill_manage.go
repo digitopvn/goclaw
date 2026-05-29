@@ -670,9 +670,6 @@ func validateManagedSkillTotalSize(files []managedSkillFile) error {
 	var total int64
 	for _, file := range files {
 		total += int64(len(file.Content))
-		if len(file.Content) > maxManagedSkillFileSize {
-			return fmt.Errorf("file %q too large (%d bytes, max %d)", file.Path, len(file.Content), maxManagedSkillFileSize)
-		}
 		if total > maxCopySize {
 			return fmt.Errorf("companion files exceed %d bytes limit", maxCopySize)
 		}

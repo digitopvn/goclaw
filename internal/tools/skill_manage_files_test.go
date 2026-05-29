@@ -185,6 +185,36 @@ func TestSkillManagePatchCopiesExistingHiddenCompanions(t *testing.T) {
 	}
 }
 
+func TestSkillManagePatchCopiesExistingLargeCompanionUnderTotalLimit(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	st := newSkillManageFilesStore()
+	ctx := skillManageFilesContext()
+	_, v1Dir := seedManagedSkill(t, st, root, "managed-skill", validManagedSkillMarkdown("managed-skill"))
+	largeContent := strings.Repeat("x", maxManagedSkillFileSize+1)
+	largePath := filepath.Join(v1Dir, "assets", "large.txt")
+	if err := os.MkdirAll(filepath.Dir(largePath), 0755); err != nil {
+		t.Fatalf("mkdir large asset: %v", err)
+	}
+	if err := os.WriteFile(largePath, []byte(largeContent), 0644); err != nil {
+		t.Fatalf("write large asset: %v", err)
+	}
+
+	res := newSkillManageFilesTool(root, st).Execute(ctx, map[string]any{
+		"action": "patch",
+		"slug":   "managed-skill",
+		"files": map[string]any{
+			"references/new.md": "# New\n",
+		},
+	})
+	if res.IsError {
+		t.Fatalf("patch returned error: %s", res.ForLLM)
+	}
+	if got := readTestFile(t, root, "skills-store/managed-skill/2/assets/large.txt"); got != largeContent {
+		t.Fatalf("large asset length = %d, want %d", len(got), len(largeContent))
+	}
+}
+
 func TestSkillManagePatchReloadsLatestVersionAfterLock(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
