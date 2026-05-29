@@ -1,7 +1,7 @@
 ---
 phase: 2
 title: "Add RapidAPI Preset and Credential Diagnostics"
-status: pending
+status: complete
 priority: P1
 effort: "2.5h"
 dependencies: [1]
@@ -25,6 +25,11 @@ Add the smallest product support needed for RapidAPI cron use: a SecureCLI prese
 - SecureCLI presets are static templates only; adding `rapidapi` is low blast radius.
 - Credentialed exec logs currently show lookup found/no found, but not enough operator-safe reason detail.
 - Host fall-through exec scrubs credential env keys; that is correct and should not be bypassed.
+- 2026-05-29 implementation:
+  - Added built-in `rapidapi` preset with required `RAPIDAPI_KEY`.
+  - Added required preset env validation before binary resolution/execution.
+  - Added safe env-key-only diagnostics for merged env and missing required keys.
+  - Added `RAPIDAPI_KEY` to fall-through exec env scrub list.
 
 ## Requirements
 
@@ -93,18 +98,23 @@ Diagnostics live at two layers:
 
 ## Todo List
 
-- [ ] Preset regression test first.
-- [ ] Missing-env diagnostic test first.
-- [ ] Add minimal preset.
-- [ ] Add safe diagnostics.
-- [ ] Update changelog if code changes.
+- [x] Preset regression test first.
+- [x] Missing-env diagnostic test first.
+- [x] Add minimal preset.
+- [x] Add safe diagnostics.
+- [x] Update changelog if code changes.
 
 ## Success Criteria
 
-- [ ] `rapidapi` preset available through existing preset API.
-- [ ] Missing `RAPIDAPI_KEY` is distinguishable from policy block and binary-not-found.
-- [ ] Logs expose only safe metadata.
-- [ ] Existing SecureCLI security tests still pass.
+- [x] `rapidapi` preset available through existing preset API.
+- [x] Missing `RAPIDAPI_KEY` is distinguishable from policy block and binary-not-found.
+- [x] Logs expose only safe metadata.
+- [x] Existing SecureCLI security tests still pass.
+
+## Validation
+
+- `go test ./internal/tools -run 'RapidAPI|MissingRequiredEnv|MergeCredentialedEnv'`
+- `go test ./internal/tools`
 
 ## Risk Assessment
 

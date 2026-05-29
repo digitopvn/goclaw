@@ -26,7 +26,7 @@ Broader cron credential context is already fixed by storing `payload.credentialU
 | Phase | Name | Status |
 |-------|------|--------|
 | 1 | [Diagnose Current RapidAPI Credential Path](./phase-01-diagnose-current-rapidapi-credential-path.md) | Complete |
-| 2 | [Add RapidAPI Preset and Credential Diagnostics](./phase-02-add-rapidapi-preset-and-credential-diagnostics.md) | Pending |
+| 2 | [Add RapidAPI Preset and Credential Diagnostics](./phase-02-add-rapidapi-preset-and-credential-diagnostics.md) | Complete |
 | 3 | [Validate Cron Smoke and Issue Handoff](./phase-03-validate-cron-smoke-and-issue-handoff.md) | Pending |
 
 ## Dependencies

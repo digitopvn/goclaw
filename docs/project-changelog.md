@@ -4,6 +4,24 @@ Significant changes, features, and fixes in reverse chronological order.
 
 ---
 
+## 2026-05-29
+
+### RapidAPI cron SecureCLI diagnostics (issue #74)
+
+**Fixes**
+
+- Added a built-in `rapidapi` SecureCLI preset with required `RAPIDAPI_KEY`, 60s timeout, and verbose/debug flag denials.
+- Credentialed exec now validates required preset env keys before binary resolution, so missing RapidAPI credentials return a GoClaw diagnostic instead of downstream `RAPIDAPI_KEY required`.
+- Added safe SecureCLI env diagnostics that log env key names/count context only, never credential values.
+- Added `RAPIDAPI_KEY` to fall-through exec env scrubbing.
+
+**Tests**
+
+- Added RapidAPI preset contract and deny-pattern coverage.
+- Added credentialed exec regressions for missing RapidAPI env and successful direct exec with injected `RAPIDAPI_KEY`.
+
+---
+
 ## 2026-05-28
 
 ### CLI credential adapter framework + git adapter (issue #82)
