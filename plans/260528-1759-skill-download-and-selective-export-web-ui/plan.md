@@ -45,7 +45,7 @@ Backward compatibility:
 |-------|------|--------|
 | 1 | [API Contract and Export Writers](./phase-01-api-contract-and-export-writers.md) | Complete |
 | 2 | [Skills UI Download Actions](./phase-02-skills-ui-download-actions.md) | Complete |
-| 3 | [Regression Validation and Issue Handoff](./phase-03-regression-validation-and-issue-handoff.md) | In Progress |
+| 3 | [Regression Validation and Issue Handoff](./phase-03-regression-validation-and-issue-handoff.md) | Complete |
 
 ## Dependencies
 

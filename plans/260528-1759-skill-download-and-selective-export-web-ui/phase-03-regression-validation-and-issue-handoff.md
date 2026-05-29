@@ -1,7 +1,7 @@
 ---
 phase: 3
 title: "Regression Validation and Issue Handoff"
-status: in_progress
+status: complete
 priority: P2
 effort: "0.5d"
 dependencies: [1, 2]
@@ -104,13 +104,13 @@ go build ./...
 - [x] Web build passes.
 - [x] Go build runs if needed.
 - [x] HTTP API docs match actual query params.
-- [ ] Issue #80 comment posted with plan path.
+- [x] Issue #80 comment posted with plan path.
 
 ## Success Criteria
 
 - [x] All acceptance criteria from issue #80 mapped to phases.
 - [x] No unresolved API questions remain.
-- [ ] Issue #80 has an implementation summary comment.
+- [x] Issue #80 has an implementation summary comment.
 - [x] Implementation is ready for PR review and beta shipping label.
 
 ## Risk Assessment
