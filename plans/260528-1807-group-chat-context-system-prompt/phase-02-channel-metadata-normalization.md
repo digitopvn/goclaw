@@ -102,6 +102,7 @@ Adapters only populate `tools.MetaChatTitle` where known. Missing title is accep
 
 - Telegram already forwards `tools.MetaChatTitle` from `message.Chat.Title`.
 - Discord now forwards cached channel name from `discordgo.State` when present; no REST lookup added.
+- WhatsApp sender display name now flows through `user_name` in `resolveSenderName`.
 - Feishu/Lark, Slack, WhatsApp, Zalo Personal, and Bitrix24 keep group ID through `ChatID`; their inbound payloads do not provide a group display name in the current hot path, so `Group name` remains optional.
 
 ## Risk Assessment
