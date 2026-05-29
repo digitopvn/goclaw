@@ -389,6 +389,7 @@ func (m *Manager) scheduleQuickAck(rc *RunContext) {
 
 func (m *Manager) cancelQuickAck(rc *RunContext) {
 	rc.mu.Lock()
+	rc.ackCancelled = true
 	if rc.ackTimer != nil {
 		rc.ackTimer.Stop()
 		rc.ackTimer = nil
@@ -398,7 +399,7 @@ func (m *Manager) cancelQuickAck(rc *RunContext) {
 
 func (m *Manager) sendQuickAck(rc *RunContext) {
 	rc.mu.Lock()
-	if rc.ackSent || rc.blockReplySent || !ShouldSendQuickAck(rc.ChatBehavior, rc.Streaming) || len(rc.ChatBehavior.QuickAck.Templates) == 0 {
+	if rc.ackCancelled || rc.ackSent || rc.blockReplySent || !ShouldSendQuickAck(rc.ChatBehavior, rc.Streaming) || len(rc.ChatBehavior.QuickAck.Templates) == 0 {
 		rc.mu.Unlock()
 		return
 	}

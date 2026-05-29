@@ -41,6 +41,7 @@ type RunContext struct {
 	mu                sync.Mutex
 	ackTimer          *time.Timer
 	ackSent           bool
+	ackCancelled      bool
 	blockReplySent    bool
 	streamBuffer      string        // accumulated streaming text (chunks are deltas)
 	inToolPhase       bool          // true after tool.call, reset on next chunk (new LLM iteration)
