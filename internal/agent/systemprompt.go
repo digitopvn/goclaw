@@ -249,17 +249,13 @@ func BuildSystemPrompt(cfg SystemPromptConfig) string {
 		if cfg.PeerKind == "group" {
 			chatType = "a group chat"
 			if cfg.ChatTitle != "" {
-				// Sanitize: strip quotes/newlines, truncate to prevent prompt injection
-				// (group admins control the title).
-				title := strings.NewReplacer("\"", "", "\n", " ", "\r", "").Replace(cfg.ChatTitle)
-				if len([]rune(title)) > 100 {
-					title = string([]rune(title)[:100])
-				}
+				title := sanitizePromptContextValue(cfg.ChatTitle)
 				chatType = fmt.Sprintf("group chat \"%s\"", title)
 			}
 		}
 		lines = append(lines, fmt.Sprintf("You are a personal assistant running in %s (%s).", channelLabel, chatType))
 		lines = append(lines, "")
+		lines = append(lines, buildCurrentChatContext(cfg, channelLabel)...)
 
 		// Inject explicit reply-target block so the LLM has a copy-paste-ready
 		// value to compare against when deciding to forward. Pairs with the
@@ -552,6 +548,60 @@ func BuildSystemPrompt(cfg SystemPromptConfig) string {
 	)
 
 	return result
+}
+
+func buildCurrentChatContext(cfg SystemPromptConfig, channelLabel string) []string {
+	if channelLabel == "" {
+		return nil
+	}
+
+	chatType := "Direct"
+	if cfg.PeerKind == "group" {
+		chatType = "Group"
+	}
+
+	lines := []string{
+		"## Current Chat Context",
+		fmt.Sprintf("- Platform: %s", sanitizePromptContextValue(channelLabel)),
+		fmt.Sprintf("- Chat type: %s", chatType),
+	}
+	if cfg.PeerKind == "group" {
+		if title := sanitizePromptContextValue(cfg.ChatTitle); title != "" {
+			lines = append(lines, fmt.Sprintf("- Group name: %s", title))
+		}
+		if cfg.ChatID != "" {
+			lines = append(lines, fmt.Sprintf("- Group ID: %s", sanitizePromptContextValue(cfg.ChatID)))
+		}
+	}
+	if userLine := buildCurrentChatUserLine(cfg); userLine != "" {
+		lines = append(lines, userLine)
+	}
+	lines = append(lines, "")
+	return lines
+}
+
+func buildCurrentChatUserLine(cfg SystemPromptConfig) string {
+	name := sanitizePromptContextValue(cfg.SenderName)
+	id := sanitizePromptContextValue(cfg.SenderID)
+	switch {
+	case name != "" && id != "":
+		return fmt.Sprintf("- User: %s (ID: %s)", name, id)
+	case name != "":
+		return fmt.Sprintf("- User: %s", name)
+	case id != "":
+		return fmt.Sprintf("- User: ID %s", id)
+	default:
+		return ""
+	}
+}
+
+func sanitizePromptContextValue(value string) string {
+	clean := strings.NewReplacer("\"", "", "\n", " ", "\r", " ", "\t", " ").Replace(strings.TrimSpace(value))
+	clean = strings.Join(strings.Fields(clean), " ")
+	if len([]rune(clean)) > 100 {
+		clean = string([]rune(clean)[:100])
+	}
+	return clean
 }
 
 // --- Section builders ---

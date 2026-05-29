@@ -1,7 +1,7 @@
 ---
 phase: 3
 title: "Prompt Rendering Integration"
-status: pending
+status: completed
 priority: P1
 effort: "3h"
 dependencies: [1, 2]
@@ -96,18 +96,18 @@ Renderer rules:
 
 ## Todo List
 
-- [ ] Add `SenderName` config field.
-- [ ] Render block.
-- [ ] Preserve `<current_reply_target>`.
-- [ ] Preserve group reply hint.
-- [ ] Update bridge prompt tests if needed.
+- [x] Add `SenderName` config field.
+- [x] Render block.
+- [x] Preserve `<current_reply_target>`.
+- [x] Preserve group reply hint.
+- [x] Update bridge prompt tests if needed.
 
 ## Success Criteria
 
-- [ ] Prompt block matches approved format for group chats.
-- [ ] Existing prompt sections still present.
-- [ ] No provider-specific prompt regressions.
-- [ ] Direct chat behavior covered and intentional.
+- [x] Prompt block matches approved format for group chats.
+- [x] Existing prompt sections still present.
+- [x] No provider-specific prompt regressions.
+- [x] Direct chat behavior covered and intentional.
 
 ## Risk Assessment
 
