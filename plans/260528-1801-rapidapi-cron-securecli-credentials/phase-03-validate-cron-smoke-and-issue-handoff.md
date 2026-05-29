@@ -94,14 +94,14 @@ Validation combines:
 - [x] Regression tests pass.
 - [x] Build gates pass if code changed.
 - [x] Smoke result recorded or skipped with reason.
-- [ ] Issue #74 replied with plan summary and filepath.
+- [ ] Issue #74 replied with plan summary and filepath after PR is opened.
 
 ## Success Criteria
 
 - [x] Tests prove cron and SecureCLI credential path for RapidAPI.
 - [x] Manual smoke either passes or is clearly blocked by missing real credentials.
 - [x] No secrets in logs, tests, docs, or issue comment.
-- [ ] GitHub issue comment links this plan and summarizes next implementation path.
+- [ ] GitHub issue comment links this plan and summarizes next implementation path after PR is opened.
 
 ## Validation
 
