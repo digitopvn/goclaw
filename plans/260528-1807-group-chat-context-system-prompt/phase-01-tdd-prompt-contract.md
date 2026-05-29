@@ -1,7 +1,7 @@
 ---
 phase: 1
 title: "TDD Prompt Contract"
-status: pending
+status: completed
 priority: P1
 effort: "2h"
 dependencies: []
@@ -78,15 +78,15 @@ Expected group block:
 
 ## Todo List
 
-- [ ] Add prompt contract tests.
-- [ ] Verify tests fail for missing block.
-- [ ] Document exact expected block in test names.
+- [x] Add prompt contract tests.
+- [x] Verify tests fail for missing block.
+- [x] Document exact expected block in test names.
 
 ## Success Criteria
 
-- [ ] Failing tests cover group with title, group without title, direct chat, sanitization.
-- [ ] Test names describe scenario, not plan labels.
-- [ ] No implementation logic added before failing tests exist.
+- [x] Failing tests cover group with title, group without title, direct chat, sanitization.
+- [x] Test names describe scenario, not plan labels.
+- [x] No implementation logic added before failing tests exist.
 
 ## Risk Assessment
 
