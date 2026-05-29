@@ -2,7 +2,7 @@
 
 ## Overview
 - Priority: P0
-- Status: Pending
+- Status: Complete
 - Purpose: Stop audio being sent as image payload.
 
 ## Requirements
@@ -24,6 +24,11 @@
 3. Add regression test using an OpenAI-compatible non-transcription provider/model that previously went through `Images`.
 4. Add test ensuring `<media:voice>` id still resolves through `read_audio`.
 
+## Implementation Notes
+- Removed generic chat/image fallback from `read_audio`.
+- Added regression proving unsupported audio routes do not call provider chat and do not create `providers.ImageContent`.
+- Preserved Gemini File API, native OpenAI input audio, and OpenAI-compatible transcription model routes.
+
 ## Success Criteria
 - The observed "image format illegal" class cannot be produced by GoClaw for audio fallback.
 - User-facing error says audio provider/model unsupported or STT provider unavailable.
@@ -33,4 +38,4 @@
 - Some provider may have relied on chat fallback for audio. Treat as unsafe legacy path because it is semantically wrong and produced this issue.
 
 ## Open Questions
-- Should DashScope/Qwen audio chat get a first-class route instead of fail-closed? Need provider API verification before planning that endpoint.
+- DashScope/Qwen audio chat can be added later as a first-class verified route.

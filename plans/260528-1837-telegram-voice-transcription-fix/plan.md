@@ -20,7 +20,7 @@ Fix Telegram app-recorded voice messages so `<media:voice>` is treated as audio 
 ## Phases
 - [x] [Phase 01 - Characterize Failure](phase-01-characterize-telegram-voice-failure.md)
 - [x] [Phase 02 - Fix Telegram STT Routing](phase-02-fix-telegram-stt-routing.md)
-- [ ] [Phase 03 - Harden Read Audio Fallback](phase-03-harden-read-audio-fallback.md)
+- [x] [Phase 03 - Harden Read Audio Fallback](phase-03-harden-read-audio-fallback.md)
 - [ ] [Phase 04 - Tests and Docs](phase-04-tests-and-docs.md)
 
 ## Dependencies
