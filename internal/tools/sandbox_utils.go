@@ -39,16 +39,24 @@ func SandboxCwd(ctx context.Context, globalWorkspace, containerBase string) (str
 
 func effectiveSandboxWorkspace(ctx context.Context, globalWorkspace string) (string, error) {
 	if ws := ToolWorkspaceFromCtx(ctx); ws != "" {
-		return filepath.Clean(ws), nil
+		return canonicalSandboxWorkspace(ws), nil
 	}
 	if globalWorkspace != "" && store.IsMasterScope(ctx) {
 		slog.Warn("security.sandbox_global_workspace_fallback",
 			"workspace", globalWorkspace,
 			"tenant_id", store.TenantIDFromContext(ctx),
 			"agent_id", store.AgentIDFromContext(ctx))
-		return filepath.Clean(globalWorkspace), nil
+		return canonicalSandboxWorkspace(globalWorkspace), nil
 	}
 	return "", fmt.Errorf("sandbox workspace unavailable for tenant-scoped execution")
+}
+
+func canonicalSandboxWorkspace(workspace string) string {
+	clean := filepath.Clean(workspace)
+	if real, err := filepath.EvalSymlinks(clean); err == nil {
+		return real
+	}
+	return clean
 }
 
 func sandboxCwdForHostPath(hostCwd, mountWorkspace, containerBase string) (string, error) {

@@ -2,6 +2,8 @@ package tools
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -151,6 +153,49 @@ func TestCredentialedExecSandboxUsesEffectiveWorkspaceMountAndContainerCwd(t *te
 	}
 }
 
+func TestCredentialedExecSandboxWorkingDirResolvesInsideTenantWorkspace(t *testing.T) {
+	globalWorkspace := t.TempDir()
+	tenantWorkspace := filepath.Join(globalWorkspace, "tenants", "acme")
+	subdir := filepath.Join(tenantWorkspace, "repo")
+	if err := os.MkdirAll(subdir, 0o755); err != nil {
+		t.Fatalf("mkdir subdir: %v", err)
+	}
+	binaryPath := filepath.Join(tenantWorkspace, "fake-cli")
+	if err := os.WriteFile(binaryPath, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("write binary: %v", err)
+	}
+	wantMountWorkspace, err := filepath.EvalSymlinks(tenantWorkspace)
+	if err != nil {
+		t.Fatalf("canonicalize tenant workspace: %v", err)
+	}
+
+	mgr := &recordingSandboxManager{}
+	tool := NewSandboxedExecTool(globalWorkspace, true, mgr)
+	tool.SetSecureCLIStore(&sandboxMountSecureCLIStore{binary: &store.SecureCLIBinary{
+		BinaryName:     "fake-cli",
+		BinaryPath:     &binaryPath,
+		TimeoutSeconds: 30,
+		Enabled:        true,
+		IsGlobal:       true,
+	}})
+
+	ctx := WithToolWorkspace(context.Background(), tenantWorkspace)
+	ctx = WithToolSandboxKey(ctx, "session-1")
+	result := tool.Execute(ctx, map[string]any{
+		"command":     "fake-cli status",
+		"working_dir": "repo",
+	})
+	if result.IsError {
+		t.Fatalf("Execute returned error: %s", result.ForLLM)
+	}
+	if mgr.workspace != wantMountWorkspace {
+		t.Fatalf("sandbox manager workspace = %q, want tenant workspace %q", mgr.workspace, wantMountWorkspace)
+	}
+	if mgr.sandbox.workDir != "/workspace/repo" {
+		t.Fatalf("sandbox exec workDir = %q, want /workspace/repo", mgr.sandbox.workDir)
+	}
+}
+
 func TestSandboxFileToolsUseEffectiveWorkspaceMount(t *testing.T) {
 	globalWorkspace := "/srv/goclaw/workspace"
 	tenantWorkspace := "/srv/goclaw/workspace/tenants/acme"
@@ -197,6 +242,51 @@ func TestSandboxFileToolsUseEffectiveWorkspaceMount(t *testing.T) {
 			}
 		})
 	}
+}
+
+type sandboxMountSecureCLIStore struct {
+	binary *store.SecureCLIBinary
+}
+
+func (s *sandboxMountSecureCLIStore) Create(context.Context, *store.SecureCLIBinary) error {
+	return nil
+}
+func (s *sandboxMountSecureCLIStore) Get(context.Context, uuid.UUID) (*store.SecureCLIBinary, error) {
+	return nil, nil
+}
+func (s *sandboxMountSecureCLIStore) Update(context.Context, uuid.UUID, map[string]any) error {
+	return nil
+}
+func (s *sandboxMountSecureCLIStore) Delete(context.Context, uuid.UUID) error { return nil }
+func (s *sandboxMountSecureCLIStore) List(context.Context) ([]store.SecureCLIBinary, error) {
+	return nil, nil
+}
+func (s *sandboxMountSecureCLIStore) LookupByBinary(context.Context, string, *uuid.UUID, string) (*store.SecureCLIBinary, error) {
+	return s.binary, nil
+}
+func (s *sandboxMountSecureCLIStore) ListEnabled(context.Context) ([]store.SecureCLIBinary, error) {
+	return nil, nil
+}
+func (s *sandboxMountSecureCLIStore) ListForAgent(context.Context, uuid.UUID) ([]store.SecureCLIBinary, error) {
+	return nil, nil
+}
+func (s *sandboxMountSecureCLIStore) IsRegisteredBinary(context.Context, string) (bool, error) {
+	return false, nil
+}
+func (s *sandboxMountSecureCLIStore) GetUserCredentials(context.Context, uuid.UUID, string) (*store.SecureCLIUserCredential, error) {
+	return nil, nil
+}
+func (s *sandboxMountSecureCLIStore) SetUserCredentials(context.Context, uuid.UUID, string, []byte) error {
+	return nil
+}
+func (s *sandboxMountSecureCLIStore) SetUserCredentialsTyped(context.Context, uuid.UUID, string, []byte, *string, *string) error {
+	return nil
+}
+func (s *sandboxMountSecureCLIStore) DeleteUserCredentials(context.Context, uuid.UUID, string) error {
+	return nil
+}
+func (s *sandboxMountSecureCLIStore) ListUserCredentials(context.Context, uuid.UUID) ([]store.SecureCLIUserCredential, error) {
+	return nil, nil
 }
 
 func TestExecSandboxFailsClosedWhenTenantWorkspaceMissing(t *testing.T) {
