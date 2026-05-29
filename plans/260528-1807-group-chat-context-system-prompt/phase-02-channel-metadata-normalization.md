@@ -1,7 +1,7 @@
 ---
 phase: 2
 title: "Channel Metadata Normalization"
-status: pending
+status: completed
 priority: P1
 effort: "4h"
 dependencies: [1]
@@ -86,17 +86,23 @@ Adapters only populate `tools.MetaChatTitle` where known. Missing title is accep
 
 ## Todo List
 
-- [ ] Lock Telegram title forwarding.
-- [ ] Add best-effort title tests where available.
-- [ ] Document unavailable-title platforms in completion notes.
-- [ ] Ensure Bitrix24 group ID remains `ChatID`.
+- [x] Lock Telegram title forwarding.
+- [x] Add best-effort title tests where available.
+- [x] Document unavailable-title platforms in completion notes.
+- [x] Ensure Bitrix24 group ID remains `ChatID`.
 
 ## Success Criteria
 
-- [ ] Every group-capable channel preserves group ID via `ChatID`.
-- [ ] Every channel with known group name sets `tools.MetaChatTitle`.
-- [ ] No new schema or session-key format.
-- [ ] No hot-path title enrichment API calls.
+- [x] Every group-capable channel preserves group ID via `ChatID`.
+- [x] Every channel with known group name sets `tools.MetaChatTitle`.
+- [x] No new schema or session-key format.
+- [x] No hot-path title enrichment API calls.
+
+## Completion Notes
+
+- Telegram already forwards `tools.MetaChatTitle` from `message.Chat.Title`.
+- Discord now forwards cached channel name from `discordgo.State` when present; no REST lookup added.
+- Feishu/Lark, Slack, WhatsApp, Zalo Personal, and Bitrix24 keep group ID through `ChatID`; their inbound payloads do not provide a group display name in the current hot path, so `Group name` remains optional.
 
 ## Risk Assessment
 
