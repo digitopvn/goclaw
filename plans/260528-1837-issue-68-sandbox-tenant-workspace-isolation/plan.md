@@ -1,7 +1,7 @@
 ---
 title: "Issue 68 Sandbox Tenant Workspace Isolation"
 description: "Plan P0 fix for Docker sandbox global workspace mount visibility across tenants."
-status: pending
+status: in_progress
 priority: P0
 issue: 68
 branch: "codex/issue-68-sandbox-tenant-workspace-plan"
@@ -31,8 +31,8 @@ Fix the sandbox isolation gap where Docker containers receive the global workspa
 
 | Phase | Name | Status |
 |-------|------|--------|
-| 1 | [Characterize Risk and Write Tests](./phase-01-characterize-risk-and-write-tests.md) | Pending |
-| 2 | [Implement Tenant-Scoped Sandbox Mounts](./phase-02-implement-tenant-scoped-sandbox-mounts.md) | Pending |
+| 1 | [Characterize Risk and Write Tests](./phase-01-characterize-risk-and-write-tests.md) | Complete |
+| 2 | [Implement Tenant-Scoped Sandbox Mounts](./phase-02-implement-tenant-scoped-sandbox-mounts.md) | Complete |
 | 3 | [Validate Security and Ship](./phase-03-validate-security-and-ship.md) | Pending |
 
 ## Key Decisions

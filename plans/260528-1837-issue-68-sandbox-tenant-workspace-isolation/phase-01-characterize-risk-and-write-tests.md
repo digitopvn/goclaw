@@ -1,7 +1,7 @@
 ---
 phase: 1
 title: "Characterize Risk and Write Tests"
-status: pending
+status: complete
 effort: "2h"
 ---
 
@@ -52,9 +52,9 @@ Priority P0. First lock current behavior with tests so implementation fixes the 
 
 ## Success Criteria
 
-- Tests fail on current global-mount behavior before implementation.
-- Tests cite live code paths and require no production Docker daemon.
-- No test depends on timing, load, or p95/p99 behavior.
+- Complete: new tests failed before implementation because `effectiveSandboxWorkspace`, `sandboxCwdForHostPath`, and `dockerCacheKey` did not exist yet.
+- Complete: tests cover effective workspace selection, fail-closed missing tenant workspace, `/workspace` root mapping, exec/credentialed exec mount/cwd use, file-tool bridge mount use, and Docker cache-key separation.
+- Complete: tests are unit-only and require no production Docker daemon.
 
 ## Risk Assessment
 

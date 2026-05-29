@@ -1,7 +1,7 @@
 ---
 phase: 2
 title: "Implement Tenant-Scoped Sandbox Mounts"
-status: pending
+status: complete
 effort: "3h"
 ---
 
@@ -59,9 +59,10 @@ When the mount workspace is already the effective workspace, `SandboxCwd()` shou
 
 ## Success Criteria
 
-- Tenant A sandbox cannot see sibling tenant directories by listing `/workspace`.
-- `read_file`, `write_file`, `list_files`, `edit`, normal `exec`, and credentialed exec use the same effective mount rule.
-- Existing host-mode workspace restrictions stay unchanged.
+- Complete: sandboxed exec and file tools now pass the effective tenant/session workspace to `sandbox.Manager.Get`.
+- Complete: sandboxed normal exec and credentialed exec map host cwd under the effective mount to `/workspace`.
+- Complete: Docker sandbox cache identity now includes workspace, workspace access, workdir, and image.
+- Complete: host-mode workspace restrictions were not changed.
 
 ## Risk Assessment
 
