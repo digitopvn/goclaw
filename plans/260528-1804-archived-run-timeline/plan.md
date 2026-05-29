@@ -40,7 +40,7 @@ Hard boundary with related issue `#67`: this plan does not add quick acknowledge
 | 2 | [Timeline Persistence](./phase-02-timeline-persistence.md) | Complete |
 | 3 | [HTTP and WS Timeline APIs](./phase-03-http-and-ws-timeline-apis.md) | Complete |
 | 4 | [Session Archive UI](./phase-04-session-archive-ui.md) | Complete |
-| 5 | [Validation and Issue Handoff](./phase-05-validation-and-issue-handoff.md) | In Progress |
+| 5 | [Validation and Issue Handoff](./phase-05-validation-and-issue-handoff.md) | Complete |
 
 ## Dependencies
 

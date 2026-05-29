@@ -1,7 +1,7 @@
 ---
 phase: 5
 title: "Validation and Issue Handoff"
-status: in-progress
+status: complete
 priority: P1
 effort: "0.5d"
 dependencies: [1, 2, 3, 4]
@@ -72,8 +72,8 @@ Validation focuses on product behavior:
 - [x] All planned acceptance criteria are checked against tests or manual verification.
 - [x] Both HTTP and WS API paths are verified.
 - [x] No quick ack or message splitting behavior from #67 is present.
-- [ ] GitHub issue #76 has a concise update with filepath.
-- [ ] Any unresolved questions are listed at the end.
+- [x] GitHub issue #76 has a concise update with filepath.
+- [x] Any unresolved questions are listed at the end.
 
 ## Todo List
 
@@ -83,7 +83,7 @@ Validation focuses on product behavior:
 - [x] Run web tests/build.
 - [x] Run `git diff --check`.
 - [x] Manually verify timeline behavior.
-- [ ] Reply to issue #76.
+- [x] Reply to issue #76.
 
 ## Risk Assessment
 
