@@ -1,14 +1,28 @@
 package telegram
 
 import (
+	"context"
 	"strings"
 	"testing"
 
 	"github.com/mymmrac/telego"
 
+	"github.com/nextlevelbuilder/goclaw/internal/audio"
 	"github.com/nextlevelbuilder/goclaw/internal/bus"
 	"github.com/nextlevelbuilder/goclaw/internal/channels"
 )
+
+type telegramTestSTT struct {
+	name  string
+	input audio.STTInput
+}
+
+func (s *telegramTestSTT) Name() string { return s.name }
+
+func (s *telegramTestSTT) Transcribe(_ context.Context, in audio.STTInput, _ audio.STTOptions) (*audio.TranscriptResult, error) {
+	s.input = in
+	return &audio.TranscriptResult{Text: "xin chao", Provider: s.name}, nil
+}
 
 // --- buildMediaTags tests ---
 
@@ -151,6 +165,64 @@ func TestBuildMediaTags_UnknownType(t *testing.T) {
 	got := buildMediaTags(items)
 	if got != "" {
 		t.Errorf("expected empty string for unknown type, got: %q", got)
+	}
+}
+
+func TestTranscribeMediaAudioUsesChannelTypeAndPreservesMIME(t *testing.T) {
+	mgr := audio.NewManager(audio.ManagerConfig{})
+	tenantSTT := &telegramTestSTT{name: "tenant"}
+	telegramSTT := &telegramTestSTT{name: "proxy"}
+	mgr.RegisterSTT(tenantSTT)
+	mgr.SetSTTChain([]string{"tenant"})
+	mgr.RegisterChannelSTT(channels.TypeTelegram, telegramSTT)
+
+	ch := &Channel{
+		BaseChannel: channels.NewBaseChannel("telegram-main", nil, nil),
+		audioMgr:    mgr,
+	}
+	ch.SetType(channels.TypeTelegram)
+
+	got, err := ch.transcribeMediaAudio(context.Background(), MediaInfo{
+		Type:        "voice",
+		FilePath:    "/tmp/voice.ogg",
+		FileName:    "voice.ogg",
+		ContentType: "audio/ogg; codecs=opus",
+	})
+	if err != nil {
+		t.Fatalf("transcribeMediaAudio returned error: %v", err)
+	}
+	if got != "xin chao" {
+		t.Fatalf("transcript = %q, want channel override transcript", got)
+	}
+	if tenantSTT.input.FilePath != "" {
+		t.Fatalf("tenant STT received input; expected Telegram channel override to win")
+	}
+	if telegramSTT.input.MimeType != "audio/ogg; codecs=opus" {
+		t.Fatalf("mime = %q, want preserved Telegram voice MIME", telegramSTT.input.MimeType)
+	}
+	if telegramSTT.input.FilePath != "/tmp/voice.ogg" {
+		t.Fatalf("file path = %q, want /tmp/voice.ogg", telegramSTT.input.FilePath)
+	}
+}
+
+func TestTelegramAudioSTTMimeFallback(t *testing.T) {
+	tests := []struct {
+		name        string
+		contentType string
+		want        string
+	}{
+		{name: "preserves opus", contentType: "audio/ogg; codecs=opus", want: "audio/ogg; codecs=opus"},
+		{name: "empty defaults ogg", contentType: "", want: "audio/ogg"},
+		{name: "octet stream defaults ogg", contentType: "application/octet-stream", want: "audio/ogg"},
+		{name: "trims whitespace", contentType: " audio/mpeg ", want: "audio/mpeg"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := telegramAudioSTTMime(tt.contentType); got != tt.want {
+				t.Fatalf("telegramAudioSTTMime(%q) = %q, want %q", tt.contentType, got, tt.want)
+			}
+		})
 	}
 }
 
