@@ -244,7 +244,7 @@ func parseSkillExportIDs(r *http.Request) ([]uuid.UUID, error) {
 	var ids []uuid.UUID
 	seen := map[uuid.UUID]bool{}
 	for _, group := range raw {
-		for _, part := range strings.Split(group, ",") {
+		for part := range strings.SplitSeq(group, ",") {
 			part = strings.TrimSpace(part)
 			if part == "" {
 				continue
@@ -385,7 +385,7 @@ func validateArchivePath(name string) error {
 	if strings.Contains(name, "\\") || strings.Contains(name, ":") {
 		return errors.New("invalid archive path")
 	}
-	for _, part := range strings.Split(name, "/") {
+	for part := range strings.SplitSeq(name, "/") {
 		if part == "" || part == "." || part == ".." {
 			return errors.New("invalid archive path")
 		}

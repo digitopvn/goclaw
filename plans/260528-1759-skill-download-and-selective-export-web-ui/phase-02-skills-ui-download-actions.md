@@ -1,7 +1,7 @@
 ---
 phase: 2
 title: "Skills UI Download Actions"
-status: pending
+status: complete
 priority: P2
 effort: "0.75d"
 dependencies: [1]
@@ -105,22 +105,22 @@ Format control:
 
 ## Todo List
 
-- [ ] URL/filename helper tests first.
-- [ ] `useSkills` exposes `downloadSkills`.
-- [ ] Detail dialog has single-skill Download.
-- [ ] Bulk toolbar has Download selected.
-- [ ] Core/system selected rows are not filtered out.
-- [ ] EN/VI/ZH strings added.
-- [ ] Web build passes.
+- [x] URL/filename helper tests first.
+- [x] `useSkills` exposes `downloadSkills`.
+- [x] Detail dialog has single-skill Download.
+- [x] Bulk toolbar has Download selected.
+- [x] Core/system selected rows are not filtered out.
+- [x] EN/VI/ZH strings added.
+- [x] Web build passes.
 
 ## Success Criteria
 
-- [ ] Admin can download one skill from detail.
-- [ ] Admin can download selected custom and system skills from list.
-- [ ] UI can choose `zip`, `tar.gz`, or `tgz`.
-- [ ] Empty selection and loading states are correct.
-- [ ] UI does not assemble archives client-side.
-- [ ] `pnpm -C ui/web test -- skills` and `pnpm -C ui/web build` pass.
+- [x] Admin can download one skill from detail.
+- [x] Admin can download selected custom and system skills from list.
+- [x] UI can choose `zip`, `tar.gz`, or `tgz`.
+- [x] Empty selection and loading states are correct.
+- [x] UI does not assemble archives client-side.
+- [x] `pnpm -C ui/web test -- skills` and `pnpm -C ui/web build` pass.
 
 ## Risk Assessment
 

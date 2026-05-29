@@ -1,7 +1,7 @@
 ---
 phase: 3
 title: "Regression Validation and Issue Handoff"
-status: pending
+status: in_progress
 priority: P2
 effort: "0.5d"
 dependencies: [1, 2]
@@ -23,8 +23,8 @@ Run the TDD regression gates, update docs if API changed, and prepare the implem
 ## Requirements
 
 - Functional: all planned acceptance criteria are validated by tests or manual checks.
-- Functional: issue #80 gets a concise summary and plan file path.
-- Non-functional: do not ship or merge implementation in this plan phase.
+- Functional: issue #80 gets a concise summary and implementation PR path.
+- Non-functional: ship by PR only; do not merge implementation in this phase.
 - Non-functional: keep reports concise and list unresolved questions last.
 
 ## Architecture
@@ -99,19 +99,19 @@ go build ./...
 
 ## Todo List
 
-- [ ] Backend focused tests pass.
-- [ ] Web focused tests pass.
-- [ ] Web build passes.
-- [ ] Go build runs if needed.
-- [ ] HTTP API docs match actual query params.
+- [x] Backend focused tests pass.
+- [x] Web focused tests pass.
+- [x] Web build passes.
+- [x] Go build runs if needed.
+- [x] HTTP API docs match actual query params.
 - [ ] Issue #80 comment posted with plan path.
 
 ## Success Criteria
 
-- [ ] All acceptance criteria from issue #80 mapped to phases.
-- [ ] No unresolved API questions remain.
-- [ ] Issue #80 has a plan summary comment.
-- [ ] Plan is ready for `/ck:cook /Volumes/GOON/www/digitop/goclaw/plans/260528-1759-skill-download-and-selective-export-web-ui/plan.md --tdd`.
+- [x] All acceptance criteria from issue #80 mapped to phases.
+- [x] No unresolved API questions remain.
+- [ ] Issue #80 has an implementation summary comment.
+- [x] Implementation is ready for PR review and beta shipping label.
 
 ## Risk Assessment
 
@@ -120,17 +120,13 @@ go build ./...
 - Risk: selected export tests pass but import/export page behavior regresses.
   Mitigation: include no-ids tar.gz compatibility test.
 - Risk: issue comment over-promises implementation.
-  Mitigation: comment says this is the implementation plan, not completed feature.
+  Mitigation: comment lists completed validation commands and links the PR.
 
 ## Security Considerations
 
 - Issue comment should not include local secrets, env paths, or private tokens.
-- Commit only plan/docs artifacts for this planning branch.
+- Commit only implementation, plan, and docs artifacts for this issue branch.
 
 ## Next Steps
 
-After user approval, run:
-
-```bash
-/ck:cook /Volumes/GOON/www/digitop/goclaw/plans/260528-1759-skill-download-and-selective-export-web-ui/plan.md --tdd
-```
+Create PR, wait for CI, then comment and relabel issue #80.

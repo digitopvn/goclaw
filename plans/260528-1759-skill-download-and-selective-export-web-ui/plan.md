@@ -1,7 +1,7 @@
 ---
 title: "Skill Download and Selective Export Web UI"
 description: "Add admin-only skill download actions on /skills with selected/system skill support and zip/tar.gz export formats."
-status: pending
+status: implemented
 priority: P2
 issue: 80
 branch: "codex/issue-80-skill-download-plan"
@@ -43,9 +43,9 @@ Backward compatibility:
 
 | Phase | Name | Status |
 |-------|------|--------|
-| 1 | [API Contract and Export Writers](./phase-01-api-contract-and-export-writers.md) | Pending |
-| 2 | [Skills UI Download Actions](./phase-02-skills-ui-download-actions.md) | Pending |
-| 3 | [Regression Validation and Issue Handoff](./phase-03-regression-validation-and-issue-handoff.md) | Pending |
+| 1 | [API Contract and Export Writers](./phase-01-api-contract-and-export-writers.md) | Complete |
+| 2 | [Skills UI Download Actions](./phase-02-skills-ui-download-actions.md) | Complete |
+| 3 | [Regression Validation and Issue Handoff](./phase-03-regression-validation-and-issue-handoff.md) | In Progress |
 
 ## Dependencies
 

@@ -1,7 +1,7 @@
 ---
 phase: 1
 title: "API Contract and Export Writers"
-status: pending
+status: complete
 priority: P1
 effort: "1d"
 dependencies: []
@@ -117,20 +117,20 @@ Skill selection flow:
 
 ## Todo List
 
-- [ ] Backend tests written before implementation.
-- [ ] Store selected-skill query is tenant-scoped.
-- [ ] Archive writer abstraction supports ZIP and gzip tar.
-- [ ] System/core selected skills export with full directory contents.
-- [ ] Full export backward-compatible.
-- [ ] HTTP docs updated if needed.
+- [x] Backend tests written before implementation.
+- [x] Store selected-skill query is tenant-scoped.
+- [x] Archive writer abstraction supports ZIP and gzip tar.
+- [x] System/core selected skills export with full directory contents.
+- [x] Full export backward-compatible.
+- [x] HTTP docs updated if needed.
 
 ## Success Criteria
 
-- [ ] `format=zip`, `format=tar.gz`, and `format=tgz` work.
-- [ ] Selected system/core skill archive contains `SKILL.md` and resource dirs when present.
-- [ ] Full export without `ids` does not accidentally include bundled system skills.
-- [ ] Unauthorized/non-admin export is rejected.
-- [ ] `go test ./internal/http ./internal/store/pg` passes.
+- [x] `format=zip`, `format=tar.gz`, and `format=tgz` work.
+- [x] Selected system/core skill archive contains `SKILL.md` and resource dirs when present.
+- [x] Full export without `ids` does not accidentally include bundled system skills.
+- [x] Unauthorized/non-admin export is rejected.
+- [x] `go test ./internal/http ./internal/store/pg` passes.
 
 ## Risk Assessment
 

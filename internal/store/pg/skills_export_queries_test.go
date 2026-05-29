@@ -2,6 +2,7 @@ package pg
 
 import (
 	"database/sql"
+	"slices"
 	"testing"
 
 	"github.com/google/uuid"
@@ -78,10 +79,5 @@ func exportSkillSlugs(skills []CustomSkillExport) []string {
 }
 
 func containsSlug(slugs []string, want string) bool {
-	for _, slug := range slugs {
-		if slug == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(slugs, want)
 }
