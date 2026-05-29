@@ -116,6 +116,24 @@ func TestUninstallSystemPackageUsesAptRemoveOnNonAlpine(t *testing.T) {
 	}
 }
 
+func TestUninstallSystemPackageReportsRecordWriteFailure(t *testing.T) {
+	withSystemPackageTestHooks(t, false, nil, func(context.Context, string, ...string) ([]byte, error) {
+		return nil, nil
+	})
+	if err := os.WriteFile(systemPackageRecordsPath(), []byte("{not-json"), 0o600); err != nil {
+		t.Fatalf("write corrupt record file: %v", err)
+	}
+
+	ok, msg := uninstallSystemPackage(context.Background(), "chromium")
+
+	if ok {
+		t.Fatal("uninstallSystemPackage succeeded, want record failure")
+	}
+	if !strings.Contains(msg, "package removed but package record update failed") {
+		t.Fatalf("msg = %q, want record update failure", msg)
+	}
+}
+
 func TestInstallSystemPackageReportsMissingApt(t *testing.T) {
 	withSystemPackageTestHooks(t, false, errors.New("missing"), func(context.Context, string, ...string) ([]byte, error) {
 		t.Fatal("command should not run")
