@@ -80,7 +80,8 @@ func (s *PGRunTimelineStore) ListRunTimelineItems(ctx context.Context, opts stor
 		 item_type, status, title, preview, COALESCE(content, '') AS content, tool_name, tool_call_id,
 		 trace_id, span_id, COALESCE(metadata, '{}'::jsonb) AS metadata, created_at
 		 FROM run_timeline_items` + where +
-		fmt.Sprintf(" ORDER BY seq ASC, created_at ASC OFFSET %d LIMIT %d", opts.Offset, limit)
+		runTimelineOrderBy(opts) +
+		fmt.Sprintf(" OFFSET %d LIMIT %d", opts.Offset, limit)
 
 	var rows []runTimelineRow
 	if err := pkgSqlxDB.SelectContext(ctx, &rows, q, args...); err != nil {
@@ -91,6 +92,13 @@ func (s *PGRunTimelineStore) ListRunTimelineItems(ctx context.Context, opts stor
 		items[i] = row.toStore()
 	}
 	return items, nil
+}
+
+func runTimelineOrderBy(opts store.RunTimelineListOpts) string {
+	if opts.RunID != "" {
+		return " ORDER BY seq ASC, created_at ASC"
+	}
+	return " ORDER BY created_at ASC, seq ASC"
 }
 
 func buildRunTimelineWhere(ctx context.Context, opts store.RunTimelineListOpts) (string, []any) {

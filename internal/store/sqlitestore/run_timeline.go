@@ -80,7 +80,8 @@ func (s *SQLiteRunTimelineStore) ListRunTimelineItems(ctx context.Context, opts 
 		 item_type, status, title, preview, COALESCE(content, '') AS content, tool_name, tool_call_id,
 		 trace_id, span_id, COALESCE(metadata, '{}') AS metadata, created_at
 		 FROM run_timeline_items` + where +
-		fmt.Sprintf(" ORDER BY seq ASC, created_at ASC LIMIT %d OFFSET %d", limit, opts.Offset)
+		runTimelineOrderBy(opts) +
+		fmt.Sprintf(" LIMIT %d OFFSET %d", limit, opts.Offset)
 
 	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
@@ -88,6 +89,13 @@ func (s *SQLiteRunTimelineStore) ListRunTimelineItems(ctx context.Context, opts 
 	}
 	defer rows.Close()
 	return scanRunTimelineRows(rows)
+}
+
+func runTimelineOrderBy(opts store.RunTimelineListOpts) string {
+	if opts.RunID != "" {
+		return " ORDER BY seq ASC, created_at ASC"
+	}
+	return " ORDER BY created_at ASC, seq ASC"
 }
 
 func buildRunTimelineWhere(ctx context.Context, opts store.RunTimelineListOpts) (string, []any) {
