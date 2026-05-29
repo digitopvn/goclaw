@@ -15,10 +15,11 @@ import (
 )
 
 type skillManageFilesStore struct {
-	nextBySlug  map[string]int
-	skills      map[uuid.UUID]store.SkillInfo
-	owners      map[string]string
-	lastUpdates map[uuid.UUID]map[string]any
+	nextBySlug            map[string]int
+	skills                map[uuid.UUID]store.SkillInfo
+	owners                map[string]string
+	lastUpdates           map[uuid.UUID]map[string]any
+	beforeVersionLockHook func(slug string)
 }
 
 func newSkillManageFilesStore() *skillManageFilesStore {
@@ -141,6 +142,91 @@ func TestSkillManagePatchFindReplaceAndFilesCopiesExistingCompanions(t *testing.
 	}
 	if got := readTestFile(t, root, "skills-store/managed-skill/2/references/ship-workflow.md"); got != "# Ship\n" {
 		t.Fatalf("reference content = %q", got)
+	}
+}
+
+func TestSkillManagePatchCopiesExistingHiddenCompanions(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	st := newSkillManageFilesStore()
+	ctx := skillManageFilesContext()
+	_, v1Dir := seedManagedSkill(t, st, root, "managed-skill", validManagedSkillMarkdown("managed-skill"))
+	paths := map[string]string{
+		".env.example":                       "TOKEN=\n",
+		".github/workflows/check.yml":        "name: check\n",
+		"references/ship-workflow.md":        "# Ship\n",
+		"references/nested/.keep-example.md": "keep\n",
+	}
+	for relPath, content := range paths {
+		fullPath := filepath.Join(v1Dir, filepath.FromSlash(relPath))
+		if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+			t.Fatalf("mkdir %s: %v", relPath, err)
+		}
+		if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
+			t.Fatalf("write %s: %v", relPath, err)
+		}
+	}
+
+	res := newSkillManageFilesTool(root, st).Execute(ctx, map[string]any{
+		"action": "patch",
+		"slug":   "managed-skill",
+		"files": map[string]any{
+			"references/new.md": "# New\n",
+		},
+	})
+	if res.IsError {
+		t.Fatalf("patch returned error: %s", res.ForLLM)
+	}
+	for relPath, want := range paths {
+		got := readTestFile(t, root, filepath.Join("skills-store/managed-skill/2", filepath.ToSlash(relPath)))
+		if got != want {
+			t.Fatalf("copied %s = %q, want %q", relPath, got, want)
+		}
+	}
+}
+
+func TestSkillManagePatchReloadsLatestVersionAfterLock(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	st := newSkillManageFilesStore()
+	ctx := skillManageFilesContext()
+	id, _ := seedManagedSkill(t, st, root, "managed-skill", validManagedSkillMarkdown("managed-skill"))
+	st.beforeVersionLockHook = func(slug string) {
+		if slug != "managed-skill" {
+			return
+		}
+		v2Dir := writeManagedSkillVersion(t, root, slug, 2, validManagedSkillMarkdown(slug))
+		firstPath := filepath.Join(v2Dir, "references", "first.md")
+		if err := os.MkdirAll(filepath.Dir(firstPath), 0755); err != nil {
+			t.Fatalf("mkdir concurrent reference: %v", err)
+		}
+		if err := os.WriteFile(firstPath, []byte("# First\n"), 0644); err != nil {
+			t.Fatalf("write concurrent reference: %v", err)
+		}
+		skill := st.skills[id]
+		skill.Version = 2
+		skill.BaseDir = v2Dir
+		skill.Path = filepath.Join(v2Dir, "SKILL.md")
+		st.skills[id] = skill
+		st.nextBySlug[slug] = 2
+		st.beforeVersionLockHook = nil
+	}
+
+	res := newSkillManageFilesTool(root, st).Execute(ctx, map[string]any{
+		"action": "patch",
+		"slug":   "managed-skill",
+		"files": map[string]any{
+			"references/second.md": "# Second\n",
+		},
+	})
+	if res.IsError {
+		t.Fatalf("patch returned error: %s", res.ForLLM)
+	}
+	if got := readTestFile(t, root, "skills-store/managed-skill/3/references/first.md"); got != "# First\n" {
+		t.Fatalf("first concurrent reference = %q", got)
+	}
+	if got := readTestFile(t, root, "skills-store/managed-skill/3/references/second.md"); got != "# Second\n" {
+		t.Fatalf("second reference = %q", got)
 	}
 }
 
@@ -311,6 +397,33 @@ func TestSkillManageFilesRejectOversizePayloadBeforeCreatingVersion(t *testing.T
 	}
 }
 
+func TestSkillManagePatchFindMissWithFilesDoesNotCreateVersion(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	st := newSkillManageFilesStore()
+	ctx := skillManageFilesContext()
+	seedManagedSkill(t, st, root, "managed-skill", validManagedSkillMarkdown("managed-skill"))
+
+	res := newSkillManageFilesTool(root, st).Execute(ctx, map[string]any{
+		"action":  "patch",
+		"slug":    "managed-skill",
+		"find":    "missing text",
+		"replace": "replacement",
+		"files": map[string]any{
+			"references/guide.md": "# Guide\n",
+		},
+	})
+	if res.IsError {
+		t.Fatalf("patch returned error: %s", res.ForLLM)
+	}
+	if !strings.Contains(res.ForLLM, "no change") {
+		t.Fatalf("result = %q, want no-change message", res.ForLLM)
+	}
+	if _, err := os.Stat(filepath.Join(root, "skills-store/managed-skill/2")); !os.IsNotExist(err) {
+		t.Fatalf("version 2 dir exists after missing find: err=%v", err)
+	}
+}
+
 func readTestFile(t *testing.T, root, rel string) string {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
@@ -416,6 +529,9 @@ func (s *skillManageFilesStore) GetNextVersion(_ context.Context, slug string) i
 	return s.nextBySlug[slug] + 1
 }
 func (s *skillManageFilesStore) GetNextVersionLocked(_ context.Context, slug string) (int, func() error, error) {
+	if s.beforeVersionLockHook != nil {
+		s.beforeVersionLockHook(slug)
+	}
 	return s.GetNextVersion(context.Background(), slug), func() error { return nil }, nil
 }
 func (s *skillManageFilesStore) GetSkillHashBySlug(context.Context, string) (string, int, bool) {

@@ -364,7 +364,24 @@ func (t *SkillManageTool) executePatch(ctx context.Context, args map[string]any)
 		return NewResult(fmt.Sprintf("Skill %q visibility set to %s.", slug, newVisibility))
 	}
 
-	existingFiles, err := collectManagedSkillCompanionFiles(info.BaseDir)
+	newVer, commitLock, lockErr := t.skills.GetNextVersionLocked(ctx, slug)
+	if lockErr != nil {
+		return ErrorResult(fmt.Sprintf("failed to lock version: %v", lockErr))
+	}
+	defer commitLock() //nolint:errcheck
+
+	latestInfo, ok := t.skills.GetSkill(ctx, slug)
+	if !ok {
+		return ErrorResult(fmt.Sprintf("skill %q not found or archived", slug))
+	}
+	if t.skills.IsSystemSkill(slug) {
+		return ErrorResult(fmt.Sprintf("cannot manage system skill %q", slug))
+	}
+	if !canManageSkill(ctx, t.skills, latestInfo) {
+		return ErrorResult(fmt.Sprintf("cannot manage skill %q: you are not the owner", slug))
+	}
+
+	existingFiles, err := collectExistingManagedSkillCompanionFiles(latestInfo.BaseDir)
 	if err != nil {
 		return ErrorResult(fmt.Sprintf("failed to inspect companion files: %v", err))
 	}
@@ -373,8 +390,8 @@ func (t *SkillManageTool) executePatch(ctx context.Context, args map[string]any)
 		return ErrorResult(err.Error())
 	}
 
-	// Read current SKILL.md from latest version
-	current, err := os.ReadFile(info.Path)
+	// Read current SKILL.md from the latest version while the slug lock is held.
+	current, err := os.ReadFile(latestInfo.Path)
 	if err != nil {
 		return ErrorResult(fmt.Sprintf("failed to read current SKILL.md: %v", err))
 	}
@@ -383,7 +400,7 @@ func (t *SkillManageTool) executePatch(ctx context.Context, args map[string]any)
 	if find != "" {
 		patched = strings.Replace(patched, find, replace, 1)
 	}
-	if find != "" && patched == string(current) && len(companionFiles) == 0 {
+	if find != "" && patched == string(current) {
 		return NewResult("no change: find text not found in current SKILL.md")
 	}
 
@@ -393,12 +410,7 @@ func (t *SkillManageTool) executePatch(ctx context.Context, args map[string]any)
 		return ErrorResult(skills.FormatGuardViolations(violations))
 	}
 
-	oldVer := info.Version
-	newVer, commitLock, lockErr := t.skills.GetNextVersionLocked(ctx, slug)
-	if lockErr != nil {
-		return ErrorResult(fmt.Sprintf("failed to lock version: %v", lockErr))
-	}
-	defer commitLock() //nolint:errcheck
+	oldVer := latestInfo.Version
 	destDir := filepath.Join(t.tenantSkillsDir(ctx), slug, fmt.Sprintf("%d", newVer))
 	if err := os.MkdirAll(destDir, 0755); err != nil {
 		return ErrorResult(fmt.Sprintf("failed to create new version directory: %v", err))
@@ -583,7 +595,7 @@ func validateManagedSkillFilePath(rawPath string) (string, error) {
 	return cleanPath, nil
 }
 
-func collectManagedSkillCompanionFiles(srcDir string) ([]managedSkillFile, error) {
+func collectExistingManagedSkillCompanionFiles(srcDir string) ([]managedSkillFile, error) {
 	var out []managedSkillFile
 	var totalSize int64
 	err := filepath.WalkDir(srcDir, func(filePath string, d os.DirEntry, err error) error {
@@ -601,8 +613,11 @@ func collectManagedSkillCompanionFiles(srcDir string) ([]managedSkillFile, error
 		if rel == "." || rel == "SKILL.md" {
 			return nil
 		}
-		cleanPath, err := validateManagedSkillFilePath(rel)
-		if err != nil {
+		cleanPath := path.Clean(rel)
+		if cleanPath == "." || strings.HasPrefix(cleanPath, "../") || cleanPath == ".." || strings.HasPrefix(cleanPath, "/") {
+			return fmt.Errorf("existing companion file %q escapes skill root", rel)
+		}
+		if skills.IsSystemArtifact(cleanPath) {
 			if d.IsDir() {
 				return filepath.SkipDir
 			}
@@ -614,9 +629,6 @@ func collectManagedSkillCompanionFiles(srcDir string) ([]managedSkillFile, error
 		info, err := d.Info()
 		if err != nil {
 			return err
-		}
-		if info.Size() > maxManagedSkillFileSize {
-			return fmt.Errorf("file %q too large (%d bytes, max %d)", cleanPath, info.Size(), maxManagedSkillFileSize)
 		}
 		totalSize += info.Size()
 		if totalSize > maxCopySize {

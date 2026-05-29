@@ -451,9 +451,9 @@ System skills (`is_system=true`) cannot be modified through any path.
 | Protection | Implementation |
 |------------|----------------|
 | Symlink detection | `filepath.WalkDir` + `d.Type()&os.ModeSymlink` check |
-| Path traversal | Relative-path normalization rejects absolute paths, Windows drive paths, null bytes, `..`, `SKILL.md`, dotfiles/dotdirs, and system artifacts |
+| Path traversal | Direct `skill_manage(files=...)` payload rejects absolute paths, Windows drive paths, null bytes, `..`, `SKILL.md`, dotfiles/dotdirs, and system artifacts |
 | Content size limit | 100KB max for SKILL.md content |
-| Companion size limit | `skill_manage(files=...)` text files are capped at 2MB each; ZIP upload remains configurable, default 20MB and clamped to 1-500MB |
+| Companion size limit | Direct `skill_manage(files=...)` text files are capped at 2MB each. Existing companions copy forward with the 20MB total copy limit. ZIP upload remains configurable, default 20MB and clamped to 1-500MB |
 | Soft-delete | Files moved to `.trash/`, never hard-deleted |
 
 ---

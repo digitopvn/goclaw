@@ -77,7 +77,7 @@ Validation rules:
 5. Update patch flow:
    - permit `files` without `find`
    - preserve visibility-only fast path when no content/files changes
-   - read current `SKILL.md` only when `find` is present
+   - read current `SKILL.md` from the latest version while the slug lock is held
    - validate final content and file payload
    - create new version dir
    - write final `SKILL.md`
