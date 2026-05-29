@@ -19,7 +19,11 @@ Significant changes, features, and fixes in reverse chronological order.
   full backup defaults.
 - Archive output now preserves skill directory content such as `SKILL.md`,
   `references/`, `scripts/`, and `assets/`, while skipping unsafe paths and
-  symlinks.
+  symlinks. Nested files named `metadata.json` or `grants.jsonl` remain
+  exportable; only generated root archive artifacts are skipped.
+- Archive assembly streams file contents into the writer and revalidates opened
+  files against the resolved skill root to avoid large in-memory reads and
+  symlink-swap escapes.
 - Web Skills page now supports Download from the detail dialog and Download
   selected from the bulk toolbar, with format selection and EN/VI/ZH labels.
 

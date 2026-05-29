@@ -3,6 +3,7 @@ package http
 import (
 	"archive/tar"
 	"archive/zip"
+	"bytes"
 	"compress/gzip"
 	"context"
 	"database/sql"
@@ -264,6 +265,7 @@ func parseSkillExportIDs(r *http.Request) ([]uuid.UUID, error) {
 
 type skillArchiveWriter interface {
 	AddFile(name string, data []byte) error
+	AddFileReader(name string, size int64, modTime time.Time, r io.Reader) error
 	Close() error
 	ContentType() string
 	Extension() string
@@ -288,10 +290,24 @@ type skillTarGzArchiveWriter struct {
 }
 
 func (w *skillTarGzArchiveWriter) AddFile(name string, data []byte) error {
+	return w.AddFileReader(name, int64(len(data)), time.Now(), bytes.NewReader(data))
+}
+
+func (w *skillTarGzArchiveWriter) AddFileReader(name string, size int64, modTime time.Time, r io.Reader) error {
 	if err := validateArchivePath(name); err != nil {
 		return err
 	}
-	return addToTar(w.tw, name, data)
+	hdr := &tar.Header{
+		Name:    name,
+		Mode:    0o644,
+		Size:    size,
+		ModTime: modTime,
+	}
+	if err := w.tw.WriteHeader(hdr); err != nil {
+		return err
+	}
+	_, err := io.Copy(w.tw, r)
+	return err
 }
 
 func (w *skillTarGzArchiveWriter) Close() error {
@@ -315,14 +331,21 @@ type skillZipArchiveWriter struct {
 }
 
 func (w *skillZipArchiveWriter) AddFile(name string, data []byte) error {
+	return w.AddFileReader(name, int64(len(data)), time.Now(), bytes.NewReader(data))
+}
+
+func (w *skillZipArchiveWriter) AddFileReader(name string, size int64, modTime time.Time, r io.Reader) error {
 	if err := validateArchivePath(name); err != nil {
 		return err
 	}
-	fw, err := w.zw.Create(name)
+	hdr := &zip.FileHeader{Name: name, Method: zip.Deflate}
+	hdr.SetModTime(modTime)
+	hdr.UncompressedSize64 = uint64(size)
+	fw, err := w.zw.CreateHeader(hdr)
 	if err != nil {
 		return err
 	}
-	_, err = fw.Write(data)
+	_, err = io.Copy(fw, r)
 	return err
 }
 
@@ -342,6 +365,11 @@ func addSkillDirectoryToArchive(archive skillArchiveWriter, root, prefix string)
 	if root == "." || root == "" {
 		return nil
 	}
+	rootReal, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return nil
+	}
+	rootReal = filepath.Clean(rootReal)
 	return filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return nil
@@ -364,17 +392,48 @@ func addSkillDirectoryToArchive(archive skillArchiveWriter, root, prefix string)
 		if archivePath == prefix {
 			return nil
 		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return nil
-		}
-		return archive.AddFile(archivePath, data)
+		return addValidatedSkillFileToArchive(archive, rootReal, path, archivePath)
 	})
 }
 
 func skillsExportArtifact(rel string) bool {
 	name := filepath.Base(rel)
-	return name == ".DS_Store" || name == "Thumbs.db" || name == "metadata.json" || name == "grants.jsonl"
+	return name == ".DS_Store" || name == "Thumbs.db" || rel == "metadata.json" || rel == "grants.jsonl"
+}
+
+func addValidatedSkillFileToArchive(archive skillArchiveWriter, rootReal, path, archivePath string) error {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer file.Close()
+
+	realPath, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		slog.Warn("security.skills_export_path_unresolved", "path", path, "error", err)
+		return nil
+	}
+	realPath = filepath.Clean(realPath)
+	if !pathWithinDir(realPath, rootReal) || hasDeniedFilePrefix(realPath) {
+		slog.Warn("security.skills_export_path_escape", "path", path, "resolved", realPath, "root", rootReal)
+		return nil
+	}
+
+	realInfo, err := os.Stat(realPath)
+	if err != nil {
+		return nil
+	}
+	fileInfo, err := file.Stat()
+	if err != nil {
+		slog.Warn("security.skills_export_open_race", "path", realPath, "error", err)
+		return nil
+	}
+	if fileInfo.IsDir() || realInfo.IsDir() || !fileInfo.Mode().IsRegular() || !os.SameFile(realInfo, fileInfo) {
+		slog.Warn("security.skills_export_open_race", "path", realPath)
+		return nil
+	}
+
+	return archive.AddFileReader(archivePath, fileInfo.Size(), fileInfo.ModTime(), file)
 }
 
 func validateArchivePath(name string) error {

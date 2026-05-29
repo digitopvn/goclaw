@@ -117,9 +117,13 @@ func TestAddSkillDirectoryToArchiveSkipsSymlinksAndResources(t *testing.T) {
 	root := t.TempDir()
 	mustWriteFile(t, filepath.Join(root, "SKILL.md"), "# Demo")
 	mustWriteFile(t, filepath.Join(root, "references", "guide.md"), "guide")
+	mustWriteFile(t, filepath.Join(root, "references", "grants.jsonl"), "nested grants")
 	mustWriteFile(t, filepath.Join(root, "scripts", "run.sh"), "#!/bin/sh")
 	mustWriteFile(t, filepath.Join(root, "assets", "logo.txt"), "logo")
+	mustWriteFile(t, filepath.Join(root, "assets", "metadata.json"), "nested metadata")
 	mustWriteFile(t, filepath.Join(root, ".DS_Store"), "junk")
+	mustWriteFile(t, filepath.Join(root, "metadata.json"), "generated metadata placeholder")
+	mustWriteFile(t, filepath.Join(root, "grants.jsonl"), "generated grants placeholder")
 	if err := os.Symlink(filepath.Join(root, "SKILL.md"), filepath.Join(root, "linked.md")); err != nil {
 		t.Fatalf("symlink: %v", err)
 	}
@@ -147,15 +151,24 @@ func TestAddSkillDirectoryToArchiveSkipsSymlinksAndResources(t *testing.T) {
 	for _, want := range []string{
 		"skills/demo/SKILL.md",
 		"skills/demo/references/guide.md",
+		"skills/demo/references/grants.jsonl",
 		"skills/demo/scripts/run.sh",
 		"skills/demo/assets/logo.txt",
+		"skills/demo/assets/metadata.json",
 	} {
 		if !slices.Contains(names, want) {
 			t.Fatalf("entries = %v, missing %s", names, want)
 		}
 	}
-	if slices.Contains(names, "skills/demo/.DS_Store") || slices.Contains(names, "skills/demo/linked.md") {
-		t.Fatalf("entries include skipped artifacts: %v", names)
+	for _, skipped := range []string{
+		"skills/demo/.DS_Store",
+		"skills/demo/linked.md",
+		"skills/demo/metadata.json",
+		"skills/demo/grants.jsonl",
+	} {
+		if slices.Contains(names, skipped) {
+			t.Fatalf("entries include skipped artifact %s: %v", skipped, names)
+		}
 	}
 }
 
