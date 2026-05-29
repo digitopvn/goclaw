@@ -1,7 +1,7 @@
 ---
 phase: 1
 title: "Characterize Current Parallel Semantics"
-status: pending
+status: complete
 priority: P1
 effort: ""
 dependencies: []
@@ -49,9 +49,9 @@ Use `ToolStage` tests with fake callbacks. Keep tests at pipeline layer first be
 
 ## Success Criteria
 
-- [ ] New tests fail against current implementation for the real gaps.
-- [ ] Existing parallel path regression remains covered.
-- [ ] No implementation changes in this phase except test helpers.
+- [x] New tests fail against current implementation for the real gaps.
+- [x] Existing parallel path regression remains covered.
+- [x] No implementation changes in this phase except test helpers.
 
 ## Risk Assessment
 

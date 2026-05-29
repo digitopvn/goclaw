@@ -1,7 +1,7 @@
 ---
 phase: 4
 title: "Validate Document and Ship"
-status: pending
+status: in_progress
 priority: P1
 effort: ""
 dependencies: [3]
@@ -58,10 +58,10 @@ Validation stays layered:
 
 ## Success Criteria
 
-- [ ] Focused tests pass.
-- [ ] PostgreSQL and SQLite builds pass.
-- [ ] `go vet ./...` passes or any existing unrelated failure is documented with evidence.
-- [ ] Docs match shipped behavior.
+- [x] Focused tests pass.
+- [x] PostgreSQL and SQLite builds pass.
+- [x] `go vet ./...` passes or any existing unrelated failure is documented with evidence.
+- [x] Docs match shipped behavior.
 - [ ] GitHub issue has implementation summary and PR link.
 
 ## Risk Assessment

@@ -1,7 +1,7 @@
 ---
 phase: 2
 title: "Harden Eligibility Hooks and Budgets"
-status: pending
+status: complete
 priority: P1
 effort: ""
 dependencies: [1]
@@ -74,10 +74,10 @@ Unknown tools should be treated as sequential. If `inferMetadata` currently defa
 
 ## Success Criteria
 
-- [ ] Phase 1 tests for hook parity, eligibility, and budget pass.
-- [ ] Existing tests for sequential `wait` barrier still pass.
-- [ ] Single-tool calls still use `ExecuteToolCall`.
-- [ ] No mutating tool can enter `ExecuteToolRaw` by default.
+- [x] Phase 1 tests for hook parity, eligibility, and budget pass.
+- [x] Existing tests for sequential `wait` barrier still pass.
+- [x] Single-tool calls still use `ExecuteToolCall`.
+- [x] No mutating tool can enter `ExecuteToolRaw` by default.
 
 ## Risk Assessment
 

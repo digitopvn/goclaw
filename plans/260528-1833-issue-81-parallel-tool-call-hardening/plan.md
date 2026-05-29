@@ -1,7 +1,7 @@
 ---
 title: "Issue 81 Parallel Tool Call Hardening"
 description: "Harden existing multi-tool parallel execution so only safe independent read-only calls run concurrently."
-status: pending
+status: in_progress
 priority: P1
 issue: 81
 branch: "codex/issue-81-parallel-tool-calls"
@@ -39,10 +39,10 @@ Design summary: [reports/brainstorm-summary.md](./reports/brainstorm-summary.md)
 
 | Phase | Name | Status |
 |-------|------|--------|
-| 1 | [Characterize Current Parallel Semantics](./phase-01-characterize-current-parallel-semantics.md) | Pending |
-| 2 | [Harden Eligibility Hooks and Budgets](./phase-02-harden-eligibility-hooks-and-budgets.md) | Pending |
-| 3 | [Add Concurrency Cap and Observability](./phase-03-add-concurrency-cap-and-observability.md) | Pending |
-| 4 | [Validate Document and Ship](./phase-04-validate-document-and-ship.md) | Pending |
+| 1 | [Characterize Current Parallel Semantics](./phase-01-characterize-current-parallel-semantics.md) | Complete |
+| 2 | [Harden Eligibility Hooks and Budgets](./phase-02-harden-eligibility-hooks-and-budgets.md) | Complete |
+| 3 | [Add Concurrency Cap and Observability](./phase-03-add-concurrency-cap-and-observability.md) | Complete |
+| 4 | [Validate Document and Ship](./phase-04-validate-document-and-ship.md) | In Progress |
 
 ## Dependencies
 
@@ -57,14 +57,14 @@ No unfinished project plan currently blocks this plan.
 
 ## Success Criteria
 
-- [ ] Read-only multi-tool batches execute concurrently with stable result order.
-- [ ] Mutating, async, MCP/unknown, `exec`/`bash`, and `wait` batches stay sequential by default.
-- [ ] Sync `PreToolUse` hooks run before any parallel I/O and can block or rewrite arguments.
-- [ ] Tool-call budget is respected before scheduling a parallel batch.
-- [ ] Parallel I/O uses a fixed bounded concurrency default.
-- [ ] Logs/traces expose enough batch metadata to debug concurrent execution.
-- [ ] Focused unit tests prove both parallel and sequential safety paths.
-- [ ] No production behavior change for single-tool calls.
+- [x] Read-only multi-tool batches execute concurrently with stable result order.
+- [x] Mutating, async, MCP/unknown, `exec`/`bash`, and `wait` batches stay sequential by default.
+- [x] Sync `PreToolUse` hooks run before any parallel I/O and can block or rewrite arguments.
+- [x] Tool-call budget is respected before scheduling a parallel batch.
+- [x] Parallel I/O uses a fixed bounded concurrency default.
+- [x] Logs/traces expose enough batch metadata to debug concurrent execution.
+- [x] Focused unit tests prove both parallel and sequential safety paths.
+- [x] No production behavior change for single-tool calls.
 
 ## Validation
 

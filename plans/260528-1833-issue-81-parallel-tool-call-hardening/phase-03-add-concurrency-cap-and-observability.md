@@ -1,7 +1,7 @@
 ---
 phase: 3
 title: "Add Concurrency Cap and Observability"
-status: pending
+status: complete
 priority: P2
 effort: ""
 dependencies: [2]
@@ -62,10 +62,10 @@ If trace attributes are easy through existing span APIs, add batch index/count m
 
 ## Success Criteria
 
-- [ ] Peak raw execution count is bounded in test.
-- [ ] Result order remains original assistant tool-call order.
-- [ ] Logs indicate when a parallel batch starts and completes.
-- [ ] No settings schema, migration, API, or web UI changes introduced.
+- [x] Peak raw execution count is bounded in test.
+- [x] Result order remains original assistant tool-call order.
+- [x] Logs indicate when a parallel batch starts and completes.
+- [x] No settings schema, migration, API, or web UI changes introduced.
 
 ## Risk Assessment
 
