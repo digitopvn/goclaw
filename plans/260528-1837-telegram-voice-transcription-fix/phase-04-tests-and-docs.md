@@ -26,6 +26,7 @@
 - Updated channel docs to use actual provider IDs: `elevenlabs` and `proxy`.
 - Documented Telegram voice MIME preservation and platform-type STT override behavior.
 - Documented `read_audio` fail-closed behavior for unsupported audio routes.
+- Added a Telegram Bot API fixture test that downloads a voice OGG file and verifies `audio/ogg; codecs=opus` survives from `telego.Voice` through media resolution into STT MIME selection.
 
 ## Success Criteria
 - Tests pass locally.
