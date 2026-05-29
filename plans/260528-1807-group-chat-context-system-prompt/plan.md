@@ -1,7 +1,7 @@
 ---
 title: "Group Chat Context System Prompt"
 description: "Add explicit group chat context block to agent system prompt for all group-capable channels."
-status: pending
+status: completed
 priority: P2
 issue: 70
 branch: "codex/issue-70-group-context-plan"
@@ -37,7 +37,7 @@ Scope is prompt-only. No group-specific memory, rules engine, DB schema, session
 | 1 | [TDD Prompt Contract](./phase-01-tdd-prompt-contract.md) | Complete |
 | 2 | [Channel Metadata Normalization](./phase-02-channel-metadata-normalization.md) | Complete |
 | 3 | [Prompt Rendering Integration](./phase-03-prompt-rendering-integration.md) | Complete |
-| 4 | [Validation and Issue Handoff](./phase-04-validation-and-issue-handoff.md) | Pending |
+| 4 | [Validation and Issue Handoff](./phase-04-validation-and-issue-handoff.md) | Complete |
 
 ## Dependencies
 

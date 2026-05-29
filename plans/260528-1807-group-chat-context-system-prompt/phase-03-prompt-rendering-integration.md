@@ -109,6 +109,11 @@ Renderer rules:
 - [x] No provider-specific prompt regressions.
 - [x] Direct chat behavior covered and intentional.
 
+## Review Fixes
+
+- Moved `## Current Chat Context` below `CacheBoundaryMarker` because sender identity is per-turn metadata.
+- Added explicit untrusted-metadata wording so group titles and sender names are context only, never instructions.
+
 ## Risk Assessment
 
 - Risk: token bloat. Mitigation: 4-5 short lines only.
