@@ -1,7 +1,7 @@
 ---
 phase: 1
 title: "TDD Contract and Schema"
-status: pending
+status: complete
 priority: P1
 effort: "1d"
 dependencies: []

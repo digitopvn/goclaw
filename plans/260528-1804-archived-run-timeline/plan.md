@@ -1,7 +1,7 @@
 ---
 title: "Archived Interleaved Run Timeline"
 description: "TDD plan for issue #76: persist safe run timeline previews and render a Claude-like session archive, without implementing issue #67 chat delivery heuristics."
-status: pending
+status: complete
 priority: P2
 branch: "codex/issue-76-run-timeline-plan"
 tags: [timeline, archive, traces, web-ui, tdd, issue-76]
@@ -36,11 +36,11 @@ Hard boundary with related issue `#67`: this plan does not add quick acknowledge
 
 | Phase | Name | Status |
 |-------|------|--------|
-| 1 | [TDD Contract and Schema](./phase-01-tdd-contract-and-schema.md) | Pending |
-| 2 | [Timeline Persistence](./phase-02-timeline-persistence.md) | Pending |
-| 3 | [HTTP and WS Timeline APIs](./phase-03-http-and-ws-timeline-apis.md) | Pending |
-| 4 | [Session Archive UI](./phase-04-session-archive-ui.md) | Pending |
-| 5 | [Validation and Issue Handoff](./phase-05-validation-and-issue-handoff.md) | Pending |
+| 1 | [TDD Contract and Schema](./phase-01-tdd-contract-and-schema.md) | Complete |
+| 2 | [Timeline Persistence](./phase-02-timeline-persistence.md) | Complete |
+| 3 | [HTTP and WS Timeline APIs](./phase-03-http-and-ws-timeline-apis.md) | Complete |
+| 4 | [Session Archive UI](./phase-04-session-archive-ui.md) | Complete |
+| 5 | [Validation and Issue Handoff](./phase-05-validation-and-issue-handoff.md) | In Progress |
 
 ## Dependencies
 

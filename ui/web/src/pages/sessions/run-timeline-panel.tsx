@@ -1,11 +1,13 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { Link } from "react-router";
 import {
   Activity,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
   Clock,
+  ExternalLink,
   MessageSquareText,
   Wrench,
   XCircle,
@@ -71,6 +73,14 @@ export function RunTimelinePanel({ items, loading }: RunTimelinePanelProps) {
                   <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                     <span>{formatDate(item.created_at)}</span>
                     {item.tool_call_id && <span>{item.tool_call_id}</span>}
+                    {item.trace_id && (
+                      <Button asChild variant="ghost" size="sm" className="h-6 gap-1 px-1 text-xs">
+                        <Link to={`/traces/${item.trace_id}`}>
+                          <ExternalLink className="h-3 w-3" />
+                          {t("detail.timeline.trace")}
+                        </Link>
+                      </Button>
+                    )}
                     {item.run_id && <span>{item.run_id}</span>}
                   </div>
                 </div>

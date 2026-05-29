@@ -1,7 +1,7 @@
 ---
 phase: 3
 title: "HTTP and WS Timeline APIs"
-status: pending
+status: complete
 priority: P1
 effort: "1d"
 dependencies: [1, 2]

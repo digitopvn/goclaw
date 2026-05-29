@@ -1,7 +1,7 @@
 ---
 phase: 2
 title: "Timeline Persistence"
-status: pending
+status: complete
 priority: P1
 effort: "1.5d"
 dependencies: [1]

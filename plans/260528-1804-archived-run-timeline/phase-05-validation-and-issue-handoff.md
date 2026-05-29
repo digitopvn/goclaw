@@ -1,7 +1,7 @@
 ---
 phase: 5
 title: "Validation and Issue Handoff"
-status: pending
+status: in-progress
 priority: P1
 effort: "0.5d"
 dependencies: [1, 2, 3, 4]
@@ -69,20 +69,20 @@ Validation focuses on product behavior:
 
 ## Success Criteria
 
-- [ ] All planned acceptance criteria are checked against tests or manual verification.
-- [ ] Both HTTP and WS API paths are verified.
-- [ ] No quick ack or message splitting behavior from #67 is present.
+- [x] All planned acceptance criteria are checked against tests or manual verification.
+- [x] Both HTTP and WS API paths are verified.
+- [x] No quick ack or message splitting behavior from #67 is present.
 - [ ] GitHub issue #76 has a concise update with filepath.
 - [ ] Any unresolved questions are listed at the end.
 
 ## Todo List
 
-- [ ] Run focused backend tests.
-- [ ] Run SQLite/Lite tests and build.
-- [ ] Run Go build/vet gates.
-- [ ] Run web tests/build.
-- [ ] Run `git diff --check`.
-- [ ] Manually verify timeline behavior.
+- [x] Run focused backend tests.
+- [x] Run SQLite/Lite tests and build.
+- [x] Run Go build/vet gates.
+- [x] Run web tests/build.
+- [x] Run `git diff --check`.
+- [x] Manually verify timeline behavior.
 - [ ] Reply to issue #76.
 
 ## Risk Assessment

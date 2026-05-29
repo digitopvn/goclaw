@@ -41,6 +41,7 @@
       "assistant": "assistant",
       "toolCall": "gọi tool",
       "toolResult": "kết quả tool",
+      "trace": "trace",
       "activity": "hoạt động",
       "failed": "lỗi"
     }

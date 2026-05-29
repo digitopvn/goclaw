@@ -1,7 +1,9 @@
 package agent
 
 import (
+	"context"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/google/uuid"
@@ -9,6 +11,22 @@ import (
 	"github.com/nextlevelbuilder/goclaw/internal/store"
 	"github.com/nextlevelbuilder/goclaw/pkg/protocol"
 )
+
+type recordingTimelineStore struct {
+	mu    sync.Mutex
+	items []store.RunTimelineItem
+}
+
+func (s *recordingTimelineStore) AppendRunTimelineItem(_ context.Context, item *store.RunTimelineItem) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.items = append(s.items, *item)
+	return nil
+}
+
+func (s *recordingTimelineStore) ListRunTimelineItems(context.Context, store.RunTimelineListOpts) ([]store.RunTimelineItem, error) {
+	return nil, nil
+}
 
 func TestRunTimelineItemFromEventScrubsToolArguments(t *testing.T) {
 	tenantID := uuid.Must(uuid.NewV7())
@@ -83,4 +101,71 @@ func TestRunTimelineItemFromEventDropsUnsupportedAndThinking(t *testing.T) {
 	if item.Preview != "visible  done" {
 		t.Fatalf("Preview = %q", item.Preview)
 	}
+}
+
+func TestRunTimelinePreviewStripsDeliveryFileTokens(t *testing.T) {
+	tenantID := uuid.Must(uuid.NewV7())
+	item, ok := runTimelineItemFromEvent(AgentEvent{
+		Type:       protocol.AgentEventRunCompleted,
+		RunID:      "run-1",
+		SessionKey: "session-1",
+		TenantID:   tenantID,
+		Payload: map[string]any{
+			"content": "See ![a](/v1/files/work/a.png?ft=signed.123) and /v1/media/b.txt?x=1&ft=stale.456",
+		},
+	}, 1)
+	if !ok {
+		t.Fatal("expected completed item")
+	}
+	if strings.Contains(item.Preview, "ft=") || strings.Contains(item.Preview, "signed.123") || strings.Contains(item.Preview, "stale.456") {
+		t.Fatalf("preview leaked delivery token: %q", item.Preview)
+	}
+	if !strings.Contains(item.Preview, "/v1/files/work/a.png") || !strings.Contains(item.Preview, "/v1/media/b.txt?x=1") {
+		t.Fatalf("preview lost clean file URLs: %q", item.Preview)
+	}
+}
+
+func TestRunTimelineRecorderOnlyTracksSupportedActiveRuns(t *testing.T) {
+	tenantID := uuid.Must(uuid.NewV7())
+	recorder := NewRunTimelineRecorder(&recordingTimelineStore{})
+	base := AgentEvent{
+		RunID:      "run-1",
+		SessionKey: "session-1",
+		TenantID:   tenantID,
+	}
+
+	recorder.Record(AgentEvent{Type: protocol.ChatEventThinking, RunID: base.RunID, SessionKey: base.SessionKey, TenantID: base.TenantID})
+	if got := recorderTrackedRuns(recorder); got != 0 {
+		t.Fatalf("tracked runs after unsupported event = %d, want 0", got)
+	}
+
+	recorder.Record(AgentEvent{Type: protocol.AgentEventToolCall, RunID: base.RunID, SessionKey: base.SessionKey, TenantID: base.TenantID})
+	if got := recorderTrackedRuns(recorder); got != 1 {
+		t.Fatalf("tracked runs after supported event = %d, want 1", got)
+	}
+	if seq := recorderSeq(recorder, base.RunID); seq != 1 {
+		t.Fatalf("seq after first supported event = %d, want 1", seq)
+	}
+
+	recorder.Record(AgentEvent{Type: protocol.ChatEventThinking, RunID: base.RunID, SessionKey: base.SessionKey, TenantID: base.TenantID})
+	if seq := recorderSeq(recorder, base.RunID); seq != 1 {
+		t.Fatalf("seq after unsupported event = %d, want 1", seq)
+	}
+
+	recorder.Record(AgentEvent{Type: protocol.AgentEventRunCompleted, RunID: base.RunID, SessionKey: base.SessionKey, TenantID: base.TenantID})
+	if got := recorderTrackedRuns(recorder); got != 0 {
+		t.Fatalf("tracked runs after terminal event = %d, want 0", got)
+	}
+}
+
+func recorderTrackedRuns(r *RunTimelineRecorder) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.nextSeq)
+}
+
+func recorderSeq(r *RunTimelineRecorder, runID string) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.nextSeq[runID]
 }

@@ -41,6 +41,7 @@
       "assistant": "assistant",
       "toolCall": "tool call",
       "toolResult": "tool result",
+      "trace": "trace",
       "activity": "activity",
       "failed": "failed"
     }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -39,10 +40,19 @@ func (r *RunTimelineRecorder) Record(event AgentEvent) {
 	if r == nil || r.store == nil {
 		return
 	}
+	if event.RunID == "" || event.SessionKey == "" || event.TenantID == uuid.Nil {
+		return
+	}
+	if _, _, ok := timelineKindForEvent(event); !ok {
+		return
+	}
 	seq := r.reserveSeq(event.RunID)
 	item, ok := runTimelineItemFromEvent(event, seq)
 	if !ok {
 		return
+	}
+	if isTerminalRunTimelineEvent(event.Type) {
+		defer r.forgetRun(event.RunID)
 	}
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), r.timeout)
@@ -59,6 +69,21 @@ func (r *RunTimelineRecorder) reserveSeq(runID string) int {
 	defer r.mu.Unlock()
 	r.nextSeq[runID]++
 	return r.nextSeq[runID]
+}
+
+func (r *RunTimelineRecorder) forgetRun(runID string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.nextSeq, runID)
+}
+
+func isTerminalRunTimelineEvent(eventType string) bool {
+	switch eventType {
+	case protocol.AgentEventRunCompleted, protocol.AgentEventRunFailed, protocol.AgentEventRunCancelled:
+		return true
+	default:
+		return false
+	}
 }
 
 func runTimelineItemFromEvent(event AgentEvent, seq int) (store.RunTimelineItem, bool) {
@@ -169,8 +194,28 @@ func timelinePreview(event AgentEvent) string {
 
 func sanitizeTimelinePreview(value string) string {
 	value = strings.TrimSpace(stripThinkingTags(value))
+	value = stripDeliveryFileTokens(value)
 	value = tools.ScrubCredentials(value)
 	return tracing.TruncateMid(value, runTimelinePreviewLimit)
+}
+
+var deliveryFileTokenRe = regexp.MustCompile(`([?&])ft=[^)\]'"<>\s&]+`)
+
+func stripDeliveryFileTokens(value string) string {
+	if !strings.Contains(value, "ft=") {
+		return value
+	}
+	value = deliveryFileTokenRe.ReplaceAllStringFunc(value, func(match string) string {
+		if strings.HasPrefix(match, "&") {
+			return ""
+		}
+		return "?"
+	})
+	value = strings.ReplaceAll(value, "?&", "?")
+	value = strings.ReplaceAll(value, "?)", ")")
+	value = strings.ReplaceAll(value, "?]", "]")
+	value = strings.TrimSuffix(value, "?")
+	return strings.TrimSuffix(value, "&")
 }
 
 func timelineMetadata(event AgentEvent) map[string]any {

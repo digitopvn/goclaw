@@ -1,7 +1,7 @@
 ---
 phase: 4
 title: "Session Archive UI"
-status: pending
+status: complete
 priority: P2
 effort: "1.5d"
 dependencies: [3]

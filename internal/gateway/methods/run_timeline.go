@@ -3,6 +3,7 @@ package methods
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 
 	"github.com/nextlevelbuilder/goclaw/internal/config"
 	"github.com/nextlevelbuilder/goclaw/internal/gateway"
@@ -52,6 +53,10 @@ func (m *RunTimelineMethods) handleGet(ctx context.Context, client *gateway.Clie
 	if params.Limit <= 0 || params.Limit > 500 {
 		params.Limit = 200
 	}
+	if params.Offset < 0 {
+		client.SendResponse(protocol.NewErrorResponse(req.ID, protocol.ErrInvalidRequest, i18n.T(locale, i18n.MsgInvalidRequest, "offset must be non-negative")))
+		return
+	}
 	items, err := m.timeline.ListRunTimelineItems(ctx, store.RunTimelineListOpts{
 		RunID:      params.RunID,
 		SessionKey: params.SessionKey,
@@ -59,7 +64,8 @@ func (m *RunTimelineMethods) handleGet(ctx context.Context, client *gateway.Clie
 		Offset:     params.Offset,
 	})
 	if err != nil {
-		client.SendResponse(protocol.NewErrorResponse(req.ID, protocol.ErrInternal, err.Error()))
+		slog.Warn("run_timeline.get_failed", "run_id", params.RunID, "session_key", params.SessionKey, "error", err)
+		client.SendResponse(protocol.NewErrorResponse(req.ID, protocol.ErrInternal, i18n.T(locale, i18n.MsgInternalError, "run timeline")))
 		return
 	}
 	if !canSeeAll(client.Role(), m.cfg.Gateway.OwnerIDs, client.UserID()) {
