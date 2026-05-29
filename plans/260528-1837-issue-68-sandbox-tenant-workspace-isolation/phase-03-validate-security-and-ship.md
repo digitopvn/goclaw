@@ -1,7 +1,7 @@
 ---
 phase: 3
 title: "Validate Security and Ship"
-status: pending
+status: complete
 effort: "2h"
 ---
 
@@ -43,10 +43,10 @@ Validate the P0 isolation fix locally, review with security focus, update change
 
 ## Success Criteria
 
-- Tests demonstrate tenant A cannot enumerate/read tenant B through sandbox shell or file tools.
-- Builds and vet pass, or any baseline failure is documented with evidence and unrelated proof.
-- PR body states root cause, fix, validation, and residual scope.
-- Issue #68 gets updated with implementation summary and PR link.
+- Complete: focused sandbox tests pass and cover effective mount selection plus cache-key isolation.
+- Complete: `go build ./...`, `go build -tags sqliteonly ./...`, `go vet ./...`, and `go test -race -tags integration ./tests/integration/` pass locally.
+- Complete: changelog security note added in `docs/project-changelog.md`.
+- Pending ship actions: PR creation and issue #68 comment/label after push.
 
 ## Risk Assessment
 
