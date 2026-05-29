@@ -88,7 +88,10 @@ func (m *QRMethods) runQRSession(ctx context.Context, entry *cancelEntry,
 	defer m.activeSessions.CompareAndDelete(instanceIDStr, entry)
 
 	if m.loader != nil {
-		if err := m.loader.LoadInstanceByID(ctx, instanceID); err != nil {
+		// Channel Start stores its context for long-lived WhatsApp work; keep tenant values
+		// from the request without tying the channel lifetime to this QR session timeout.
+		loadCtx := context.WithoutCancel(ctx)
+		if err := m.loader.LoadInstanceByID(loadCtx, instanceID); err != nil {
 			slog.Warn("whatsapp QR: targeted channel load failed", "instance", instanceIDStr, "channel", channelName, "error", err)
 		}
 	}
