@@ -559,7 +559,7 @@ func validateManagedSkillFilePath(rawPath string) (string, error) {
 	if strings.HasPrefix(normalized, "/") {
 		return "", fmt.Errorf("invalid file path %q: absolute paths are not allowed", rawPath)
 	}
-	for _, part := range strings.Split(normalized, "/") {
+	for part := range strings.SplitSeq(normalized, "/") {
 		switch part {
 		case "..":
 			return "", fmt.Errorf("invalid file path %q: parent traversal is not allowed", rawPath)

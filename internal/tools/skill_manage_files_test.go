@@ -234,7 +234,6 @@ func TestSkillManageFilesRejectUnsafePathsBeforeCreatingVersion(t *testing.T) {
 		"SKILL.md",
 	}
 	for _, relPath := range cases {
-		relPath := relPath
 		t.Run(relPath, func(t *testing.T) {
 			t.Parallel()
 			root := t.TempDir()
