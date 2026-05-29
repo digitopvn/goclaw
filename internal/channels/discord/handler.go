@@ -260,6 +260,7 @@ func (c *Channel) handleMessage(_ *discordgo.Session, m *discordgo.MessageCreate
 			mediaFiles = append(threadBackfill.Media, mediaFiles...)
 		}
 	}
+	hasThreadBackfill := threadBackfill.Context != "" || len(threadBackfill.Media) > 0
 
 	// Build final content with group context.
 	finalContent := content
@@ -268,7 +269,7 @@ func (c *Channel) handleMessage(_ *discordgo.Session, m *discordgo.MessageCreate
 		if threadBackfill.Context != "" {
 			annotated = threadBackfill.Context + "\n\n" + annotated
 		}
-		if c.HistoryLimit() > 0 {
+		if c.HistoryLimit() > 0 && !hasThreadBackfill {
 			finalContent = c.GroupHistory().BuildContext(channelID, annotated, c.HistoryLimit())
 		} else {
 			finalContent = annotated
@@ -276,7 +277,8 @@ func (c *Channel) handleMessage(_ *discordgo.Session, m *discordgo.MessageCreate
 		// Collect media from pending history entries (sent before this @mention).
 		// Original filename not retained by CollectMedia; use disk basename so
 		// persistMedia's sanitizer gets a meaningful stem instead of UUID fallback.
-		if histMediaPaths := c.GroupHistory().CollectMedia(channelID); len(histMediaPaths) > 0 {
+		if !hasThreadBackfill {
+			histMediaPaths := c.GroupHistory().CollectMedia(channelID)
 			for _, p := range histMediaPaths {
 				mediaFiles = append(mediaFiles, bus.MediaFile{Path: p, Filename: filepath.Base(p)})
 			}

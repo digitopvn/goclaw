@@ -117,6 +117,46 @@ func TestDiscordThreadBackfillSkipsNonThreadChannels(t *testing.T) {
 	}
 }
 
+func TestDiscordThreadBackfillDoesNotDuplicatePendingThreadHistory(t *testing.T) {
+	server := newDiscordThreadBackfillServer(t, discordThreadBackfillFixture{
+		historyJSON: `[
+			{"id":"prior-1","channel_id":"thread-1","content":"same prior context","author":{"id":"user-1","username":"Alice"},"attachments":[
+				{"id":"att-1","filename":"diagram.png","content_type":"image/png","size":4,"url":"__SERVER__/cdn/diagram.png"}
+			]}
+		]`,
+		media: map[string]string{
+			"/cdn/diagram.png": "png!",
+		},
+	})
+	defer server.Close()
+	ch, mb := newThreadBackfillTestChannel(t, server)
+
+	ch.handleMessage(ch.session, &discordgo.MessageCreate{Message: &discordgo.Message{
+		ID:        "prior-1",
+		ChannelID: "thread-1",
+		GuildID:   "guild-1",
+		Content:   "same prior context",
+		Author:    &discordgo.User{ID: "user-1", Username: "Alice"},
+		Attachments: []*discordgo.MessageAttachment{{
+			ID:          "att-1",
+			Filename:    "diagram.png",
+			ContentType: "image/png",
+			Size:        4,
+			URL:         server.URL + "/cdn/diagram.png",
+		}},
+		Timestamp: time.Now(),
+	}})
+	ch.handleMessage(ch.session, mentionedThreadMessage("current-1", "current request"))
+
+	msg := consumeThreadBackfillInbound(t, mb)
+	if got := strings.Count(msg.Content, "same prior context"); got != 1 {
+		t.Fatalf("prior context count = %d, want 1:\n%s", got, msg.Content)
+	}
+	if got := len(msg.Media); got != 1 {
+		t.Fatalf("media count = %d, want 1: %#v", got, msg.Media)
+	}
+}
+
 type discordThreadBackfillFixture struct {
 	channelJSON   string
 	historyStatus int
