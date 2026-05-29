@@ -3,6 +3,7 @@ package skills
 import (
 	"context"
 	"errors"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -76,6 +77,24 @@ func TestInstallSystemPackageUsesAptOnNonAlpine(t *testing.T) {
 	wantArgs := []string{"-n", "env", "DEBIAN_FRONTEND=noninteractive", "apt-get", "install", "-y", "--no-install-recommends", "python3-pip"}
 	if !reflect.DeepEqual(gotArgs, wantArgs) {
 		t.Fatalf("args = %#v, want %#v", gotArgs, wantArgs)
+	}
+}
+
+func TestInstallSystemPackageReportsRecordWriteFailure(t *testing.T) {
+	withSystemPackageTestHooks(t, false, nil, func(context.Context, string, ...string) ([]byte, error) {
+		return nil, nil
+	})
+	if err := os.WriteFile(systemPackageRecordsPath(), []byte("{not-json"), 0o600); err != nil {
+		t.Fatalf("write corrupt record file: %v", err)
+	}
+
+	ok, msg := installSystemPackage(context.Background(), "chromium")
+
+	if ok {
+		t.Fatal("installSystemPackage succeeded, want record failure")
+	}
+	if !strings.Contains(msg, "package installed but package record update failed") {
+		t.Fatalf("msg = %q, want record update failure", msg)
 	}
 }
 
