@@ -253,10 +253,21 @@ func (c *Channel) handleMessage(_ *discordgo.Session, m *discordgo.MessageCreate
 	content = strings.ReplaceAll(content, "<@"+c.botUserID+">", "")
 	content = strings.TrimSpace(content)
 
+	threadBackfill := threadBackfillResult{}
+	if peerKind == "group" && mentioned {
+		threadBackfill = c.backfillThreadHistory(ctx, m, maxBytes)
+		if len(threadBackfill.Media) > 0 {
+			mediaFiles = append(threadBackfill.Media, mediaFiles...)
+		}
+	}
+
 	// Build final content with group context.
 	finalContent := content
 	if peerKind == "group" {
 		annotated := fmt.Sprintf("[From: %s (<@%s>)]\n%s", senderName, senderID, content)
+		if threadBackfill.Context != "" {
+			annotated = threadBackfill.Context + "\n\n" + annotated
+		}
 		if c.HistoryLimit() > 0 {
 			finalContent = c.GroupHistory().BuildContext(channelID, annotated, c.HistoryLimit())
 		} else {
