@@ -2,14 +2,18 @@ package http
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"compress/gzip"
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -52,8 +56,23 @@ func (h *SkillsHandler) handleSkillsExport(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	exportReq, err := parseSkillExportRequest(r)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	skills, err := pg.ExportSkills(r.Context(), h.db, pg.SkillExportSelection{
+		IDs:           exportReq.IDs,
+		IncludeSystem: exportReq.IncludeSystem,
+	})
+	if err != nil {
+		slog.Error("skills.export.query", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": i18n.T(locale, i18n.MsgInternalError)})
+		return
+	}
+
 	stream := r.URL.Query().Get("stream") == "true"
-	fileName := fmt.Sprintf("skills-%s.tar.gz", time.Now().UTC().Format("20060102"))
+	fileName := skillExportFileName(skills, exportReq.Format, time.Now().UTC())
 
 	if stream {
 		flusher := initSSE(w)
@@ -62,7 +81,7 @@ func (h *SkillsHandler) handleSkillsExport(w http.ResponseWriter, r *http.Reques
 			return
 		}
 
-		tmpFile, err := os.CreateTemp("", "goclaw-skills-export-*.tar.gz")
+		tmpFile, err := os.CreateTemp("", "goclaw-skills-export-*"+exportReq.Format.Extension)
 		if err != nil {
 			sendSSE(w, flusher, "error", ProgressEvent{Phase: "init", Status: "error", Detail: "failed to create temp file"})
 			return
@@ -70,7 +89,7 @@ func (h *SkillsHandler) handleSkillsExport(w http.ResponseWriter, r *http.Reques
 		tmpPath := tmpFile.Name()
 
 		progressFn := func(ev ProgressEvent) { sendSSE(w, flusher, "progress", ev) }
-		buildErr := h.writeSkillsExportArchive(r.Context(), tmpFile, progressFn)
+		buildErr := h.writeSkillsExportArchive(r.Context(), tmpFile, progressFn, exportReq, skills)
 		tmpFile.Close()
 
 		if buildErr != nil {
@@ -83,29 +102,26 @@ func (h *SkillsHandler) handleSkillsExport(w http.ResponseWriter, r *http.Reques
 		token := storeExportToken("skills", userID, tmpPath, fileName)
 		sendSSE(w, flusher, "complete", map[string]string{
 			"download_url": "/v1/export/download/" + token,
+			"file_name":    fileName,
 		})
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/gzip")
+	w.Header().Set("Content-Type", exportReq.Format.ContentType)
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, fileName))
-	if err := h.writeSkillsExportArchive(r.Context(), w, nil); err != nil {
+	if err := h.writeSkillsExportArchive(r.Context(), w, nil, exportReq, skills); err != nil {
 		slog.Error("skills.export.direct", "error", err)
 	}
 }
 
-// writeSkillsExportArchive builds the skills tar.gz: skills/{slug}/metadata.json + SKILL.md + grants.jsonl per skill.
-func (h *SkillsHandler) writeSkillsExportArchive(ctx context.Context, w io.Writer, progressFn func(ProgressEvent)) error {
+// writeSkillsExportArchive builds the skills archive.
+func (h *SkillsHandler) writeSkillsExportArchive(ctx context.Context, w io.Writer, progressFn func(ProgressEvent), req skillExportRequest, skills []pg.CustomSkillExport) error {
 	lw := &limitedWriter{w: w, limit: maxExportSize}
-	gw := gzip.NewWriter(lw)
-	tw := tar.NewWriter(gw)
-
-	skills, err := pg.ExportCustomSkills(ctx, h.db)
+	archive, err := newSkillArchiveWriter(lw, req.Format)
 	if err != nil {
-		tw.Close()
-		gw.Close()
-		return fmt.Errorf("query custom skills: %w", err)
+		return err
 	}
+	defer archive.Close()
 
 	for i, sk := range skills {
 		if progressFn != nil {
@@ -138,21 +154,13 @@ func (h *SkillsHandler) writeSkillsExportArchive(ctx context.Context, w io.Write
 			slog.Warn("skills.export: marshal metadata", "slug", sk.Slug, "error", err)
 			continue
 		}
-		if err := addToTar(tw, prefix+"metadata.json", metaJSON); err != nil {
-			tw.Close()
-			gw.Close()
+		if err := archive.AddFile(prefix+"metadata.json", metaJSON); err != nil {
 			return fmt.Errorf("write %smetadata.json: %w", prefix, err)
 		}
 
-		// SKILL.md — read from filesystem
-		if sk.FilePath != "" {
-			fullPath := config.ExpandHome(store.SkillMarkdownPath(sk.FilePath))
-			if data, err := os.ReadFile(fullPath); err == nil {
-				if err := addToTar(tw, prefix+"SKILL.md", data); err != nil {
-					slog.Warn("skills.export: write SKILL.md", "slug", sk.Slug, "error", err)
-				}
-			} else {
-				slog.Warn("skills.export: read SKILL.md", "slug", sk.Slug, "path", fullPath, "error", err)
+		for _, root := range h.skillExportRoots(sk) {
+			if err := addSkillDirectoryToArchive(archive, root, prefix); err != nil {
+				slog.Warn("skills.export: write skill directory", "slug", sk.Slug, "root", root, "error", err)
 			}
 		}
 
@@ -170,9 +178,7 @@ func (h *SkillsHandler) writeSkillsExportArchive(ctx context.Context, w io.Write
 			data, err := marshalJSONL(grants)
 			if err != nil {
 				slog.Warn("skills.export: marshal grants", "slug", sk.Slug, "error", err)
-			} else if err := addToTar(tw, prefix+"grants.jsonl", data); err != nil {
-				tw.Close()
-				gw.Close()
+			} else if err := archive.AddFile(prefix+"grants.jsonl", data); err != nil {
 				return fmt.Errorf("write %sgrants.jsonl: %w", prefix, err)
 			}
 		}
@@ -182,9 +188,215 @@ func (h *SkillsHandler) writeSkillsExportArchive(ctx context.Context, w io.Write
 		progressFn(ProgressEvent{Phase: "skills", Status: "done", Current: len(skills), Total: len(skills), Detail: fmt.Sprintf("%d skills exported", len(skills))})
 	}
 
-	if err := tw.Close(); err != nil {
-		gw.Close()
-		return fmt.Errorf("close tar: %w", err)
+	return archive.Close()
+}
+
+func (h *SkillsHandler) skillExportRoots(sk pg.CustomSkillExport) []string {
+	if sk.FilePath == "" {
+		return nil
 	}
-	return gw.Close()
+	root := config.ExpandHome(store.SkillBaseDir(sk.FilePath))
+	return readableSkillRoots(root, sk.Slug, sk.IsSystem, h.bundledDir)
+}
+
+type skillExportFormat struct {
+	Canonical   string
+	Extension   string
+	ContentType string
+}
+
+type skillExportRequest struct {
+	Format        skillExportFormat
+	IDs           []uuid.UUID
+	IncludeSystem bool
+}
+
+func parseSkillExportRequest(r *http.Request) (skillExportRequest, error) {
+	format, err := parseSkillExportFormat(r.URL.Query().Get("format"))
+	if err != nil {
+		return skillExportRequest{}, err
+	}
+	ids, err := parseSkillExportIDs(r)
+	if err != nil {
+		return skillExportRequest{}, err
+	}
+	return skillExportRequest{
+		Format:        format,
+		IDs:           ids,
+		IncludeSystem: strings.EqualFold(r.URL.Query().Get("include_system"), "true"),
+	}, nil
+}
+
+func parseSkillExportFormat(raw string) (skillExportFormat, error) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "", "tar.gz", "tgz":
+		return skillExportFormat{Canonical: "tar.gz", Extension: ".tar.gz", ContentType: "application/gzip"}, nil
+	case "zip":
+		return skillExportFormat{Canonical: "zip", Extension: ".zip", ContentType: "application/zip"}, nil
+	default:
+		return skillExportFormat{}, fmt.Errorf("unsupported skills export format %q", raw)
+	}
+}
+
+func parseSkillExportIDs(r *http.Request) ([]uuid.UUID, error) {
+	raw := append([]string{}, r.URL.Query()["id"]...)
+	raw = append(raw, r.URL.Query()["ids"]...)
+	var ids []uuid.UUID
+	seen := map[uuid.UUID]bool{}
+	for _, group := range raw {
+		for _, part := range strings.Split(group, ",") {
+			part = strings.TrimSpace(part)
+			if part == "" {
+				continue
+			}
+			id, err := uuid.Parse(part)
+			if err != nil {
+				return nil, fmt.Errorf("invalid skill id %q", part)
+			}
+			if !seen[id] {
+				seen[id] = true
+				ids = append(ids, id)
+			}
+		}
+	}
+	return ids, nil
+}
+
+type skillArchiveWriter interface {
+	AddFile(name string, data []byte) error
+	Close() error
+	ContentType() string
+	Extension() string
+}
+
+func newSkillArchiveWriter(w io.Writer, format skillExportFormat) (skillArchiveWriter, error) {
+	switch format.Canonical {
+	case "zip":
+		return &skillZipArchiveWriter{zw: zip.NewWriter(w)}, nil
+	case "tar.gz":
+		gw := gzip.NewWriter(w)
+		return &skillTarGzArchiveWriter{gw: gw, tw: tar.NewWriter(gw)}, nil
+	default:
+		return nil, fmt.Errorf("unsupported skills export format %q", format.Canonical)
+	}
+}
+
+type skillTarGzArchiveWriter struct {
+	gw     *gzip.Writer
+	tw     *tar.Writer
+	closed bool
+}
+
+func (w *skillTarGzArchiveWriter) AddFile(name string, data []byte) error {
+	if err := validateArchivePath(name); err != nil {
+		return err
+	}
+	return addToTar(w.tw, name, data)
+}
+
+func (w *skillTarGzArchiveWriter) Close() error {
+	if w.closed {
+		return nil
+	}
+	w.closed = true
+	if err := w.tw.Close(); err != nil {
+		w.gw.Close()
+		return err
+	}
+	return w.gw.Close()
+}
+
+func (w *skillTarGzArchiveWriter) ContentType() string { return "application/gzip" }
+func (w *skillTarGzArchiveWriter) Extension() string   { return ".tar.gz" }
+
+type skillZipArchiveWriter struct {
+	zw     *zip.Writer
+	closed bool
+}
+
+func (w *skillZipArchiveWriter) AddFile(name string, data []byte) error {
+	if err := validateArchivePath(name); err != nil {
+		return err
+	}
+	fw, err := w.zw.Create(name)
+	if err != nil {
+		return err
+	}
+	_, err = fw.Write(data)
+	return err
+}
+
+func (w *skillZipArchiveWriter) Close() error {
+	if w.closed {
+		return nil
+	}
+	w.closed = true
+	return w.zw.Close()
+}
+
+func (w *skillZipArchiveWriter) ContentType() string { return "application/zip" }
+func (w *skillZipArchiveWriter) Extension() string   { return ".zip" }
+
+func addSkillDirectoryToArchive(archive skillArchiveWriter, root, prefix string) error {
+	root = filepath.Clean(root)
+	if root == "." || root == "" {
+		return nil
+	}
+	return filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil || rel == "." {
+			return nil
+		}
+		rel = filepath.ToSlash(rel)
+		if skillsExportArtifact(rel) {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if d.IsDir() || d.Type()&os.ModeSymlink != 0 {
+			return nil
+		}
+		archivePath := prefix + sanitizeRelPath(rel)
+		if archivePath == prefix {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil
+		}
+		return archive.AddFile(archivePath, data)
+	})
+}
+
+func skillsExportArtifact(rel string) bool {
+	name := filepath.Base(rel)
+	return name == ".DS_Store" || name == "Thumbs.db" || name == "metadata.json" || name == "grants.jsonl"
+}
+
+func validateArchivePath(name string) error {
+	if name == "" || strings.ContainsRune(name, 0) || strings.HasPrefix(name, "/") || filepath.IsAbs(name) {
+		return errors.New("invalid archive path")
+	}
+	name = filepath.ToSlash(name)
+	if strings.Contains(name, "\\") || strings.Contains(name, ":") {
+		return errors.New("invalid archive path")
+	}
+	for _, part := range strings.Split(name, "/") {
+		if part == "" || part == "." || part == ".." {
+			return errors.New("invalid archive path")
+		}
+	}
+	return nil
+}
+
+func skillExportFileName(skills []pg.CustomSkillExport, format skillExportFormat, now time.Time) string {
+	if len(skills) == 1 {
+		sk := skills[0]
+		return fmt.Sprintf("goclaw-skill-%s-v%d%s", sanitizeName(sk.Slug), sk.Version, format.Extension)
+	}
+	return fmt.Sprintf("goclaw-skills-export-%s%s", now.Format("20060102-1504"), format.Extension)
 }
