@@ -40,6 +40,7 @@ const (
 	MethodSessionsDelete  = "sessions.delete"
 	MethodSessionsReset   = "sessions.reset"
 	MethodSessionsCompact = "sessions.compact"
+	MethodRunTimelineGet  = "run.timeline.get"
 
 	// System
 	MethodConnect = "connect"
@@ -232,8 +233,8 @@ const (
 // Bitrix24 portal management (self-service onboarding for the bitrix24 channel).
 // See plans/260513-1648-bitrix24-portal-self-service-ux/phase-02-backend-rpc-portals.md.
 const (
-	MethodBitrixPortalsList           = "bitrix.portals.list"
-	MethodBitrixPortalsCreate         = "bitrix.portals.create"
-	MethodBitrixPortalsGetInstallURL  = "bitrix.portals.get_install_url"
-	MethodBitrixPortalsDelete         = "bitrix.portals.delete"
+	MethodBitrixPortalsList          = "bitrix.portals.list"
+	MethodBitrixPortalsCreate        = "bitrix.portals.create"
+	MethodBitrixPortalsGetInstallURL = "bitrix.portals.get_install_url"
+	MethodBitrixPortalsDelete        = "bitrix.portals.delete"
 )
