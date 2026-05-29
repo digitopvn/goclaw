@@ -4,7 +4,7 @@
 - Issue: https://github.com/digitopvn/goclaw/issues/85
 - Worktree: `/Users/duynguyen/.codex/worktrees/codex/issue-85-telegram-voice-transcription-plan`
 - Branch: `codex/issue-85-telegram-voice-transcription-plan`
-- Base: `origin/dev` at `f771cff7`
+- Base: `origin/dev` at `5017f7ca` after merging latest dev into the issue branch
 - Debug report: `reports/debugger-260528-1837-telegram-voice-transcription.md`
 
 ## Goal
@@ -18,7 +18,7 @@ Fix Telegram app-recorded voice messages so `<media:voice>` is treated as audio 
 - Docs say unified STT should cover Telegram and use the configured provider chain, but current names and behavior drift from implementation: `docs/05-channels-messaging.md:262`.
 
 ## Phases
-- [ ] [Phase 01 - Characterize Failure](phase-01-characterize-telegram-voice-failure.md)
+- [x] [Phase 01 - Characterize Failure](phase-01-characterize-telegram-voice-failure.md)
 - [ ] [Phase 02 - Fix Telegram STT Routing](phase-02-fix-telegram-stt-routing.md)
 - [ ] [Phase 03 - Harden Read Audio Fallback](phase-03-harden-read-audio-fallback.md)
 - [ ] [Phase 04 - Tests and Docs](phase-04-tests-and-docs.md)
