@@ -20,6 +20,82 @@ Significant changes, features, and fixes in reverse chronological order.
 
 ---
 
+### Agent Access git credential follow-up (issue #117)
+
+**Fixes**
+
+- Replaced separate Agent Grants and Agent Credentials row actions with one
+  Agent Access dialog containing Credential and Access policy tabs, preventing
+  overlapping agent-access modals.
+- Git PAT credentials now inject GitHub-compatible Basic auth extraheaders
+  instead of Bearer headers.
+- SSH private keys are now checked with OpenSSH at save time when `ssh-keygen`
+  is available, catching keys that would later fail with `error in libcrypto`.
+
+**Security**
+
+- Git PAT redaction now includes the raw token, the base64 Basic auth payload,
+  and the full injected header value.
+
+---
+
+### Tool-call announcements
+
+**Fixes**
+
+- Intermediate Replies now guarantees a pre-tool announcement when the model
+  requests tools without assistant text, or with text that does not name the
+  tools. The fallback uses sanitized tool names only and is tagged as
+  `tool_announcement`.
+- Quick acknowledgement off still suppresses generic first acknowledgements,
+  but no longer suppresses explicit tool announcements.
+
+**Tests**
+
+- Added pipeline coverage for empty-content tool calls and channel coverage for
+  `tool_announcement` delivery when Quick acknowledgement is off.
+
+---
+
+### Channel intermediate reply gating
+
+**Fixes**
+
+- Quick acknowledgement off now suppresses the first pre-tool `block.reply`
+  even when explicit `gateway.block_reply` is enabled, so the initial
+  acknowledgement does not leak through the Intermediate Replies path.
+- Final reply dedup now uses channel-delivered interim state instead of raw
+  pipeline `block.reply` emit counts, avoiding false suppression when an
+  interim event was skipped.
+
+**Tests**
+
+- Added channel event coverage for quick acknowledgement disabled and
+  `quick_ack.mode = "off"` with explicit intermediate replies enabled.
+
+---
+
+### Agent-scoped git credentials (issue #117)
+
+**New**
+
+- Added agent-scoped Secure CLI credentials with PostgreSQL migration `000077`
+  and SQLite schema version `46`.
+- Added HTTP APIs under
+  `/v1/cli-credentials/{id}/agent-credentials/{agentId}` for listing,
+  reading metadata, saving, and deleting agent credentials.
+- Web CLI Credentials now exposes Agent Credentials as the primary git PAT/SSH
+  setup path, with User Credentials renamed to advanced personal overrides.
+
+**Security**
+
+- Runtime credential precedence is now user override, context credential, agent
+  credential, then binary env defaults.
+- Git adapter audit logs include `credential_source` without logging raw
+  secrets or plaintext host scopes.
+
+---
+
 ## 2026-05-29
 
 ### Passive channel memory extraction (issue #64)
