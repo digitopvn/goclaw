@@ -1,7 +1,7 @@
 ---
 phase: 4
 title: Ship beta PR
-status: in-progress
+status: completed
 priority: P2
 effort: 30m
 dependencies:

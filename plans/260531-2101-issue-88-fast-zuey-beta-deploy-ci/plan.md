@@ -4,7 +4,7 @@ description: >-
   Refactor dev beta release workflow so zuey deploy starts after the linux amd64
   release asset is published, while arm64 and Docker artifacts still complete
   afterward.
-status: in-progress
+status: completed
 priority: P2
 branch: codex/issue-88-fast-zuey-beta-deploy-ci
 tags: []
@@ -30,7 +30,7 @@ Goal: optimize time-to-zuey deployed. Do not weaken Go/Web gates. Do not drop ar
 | 1 | [Scout and design](./phase-01-scout-and-design.md) | Completed |
 | 2 | [Refactor dev beta workflow](./phase-02-refactor-dev-beta-workflow.md) | Completed |
 | 3 | [Validate workflow](./phase-03-validate-workflow.md) | Completed |
-| 4 | [Ship beta PR](./phase-04-ship-beta-pr.md) | In Progress |
+| 4 | [Ship beta PR](./phase-04-ship-beta-pr.md) | Completed |
 
 ## Dependencies
 
