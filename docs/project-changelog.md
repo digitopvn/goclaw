@@ -22,6 +22,76 @@ Significant changes, features, and fixes in reverse chronological order.
 
 ---
 
+### Sandbox tenant workspace isolation (issue #68)
+
+**Security**
+
+- Scoped Docker sandbox workspace mounts to the effective tenant/session workspace from tool context instead of the global workspace root.
+- Kept the in-container UX stable: the effective workspace is mounted at `/workspace`.
+- Made Docker sandbox reuse workspace/config-aware so shared or agent-scoped containers cannot cross workspace boundaries.
+- Added fail-closed behavior when tenant-scoped sandbox execution has no effective workspace.
+
+**Tests**
+
+- Added unit coverage for effective sandbox workspace selection, `/workspace` cwd mapping, normal and credentialed sandbox exec, file-tool sandbox bridge mount selection, and Docker cache-key isolation.
+
+---
+
+### Human-like channel delivery MVP (issue #67)
+
+**New**
+
+- Added `gateway.chat_behavior` runtime config for global quick acknowledgement and safe final multi-message splitting.
+- Added per-channel `chat_behavior` override support for channel instances that already participate in channel delivery settings.
+- Quick acknowledgements are emitted only for non-streaming channel runs and are cancelled when a block reply or terminal event arrives.
+- Final splitting applies only to non-streaming text-only final replies; unsafe Markdown, code, tables, lists, quotes, JSON, and URL-only paragraphs stay as one message.
+- Added `chat_behavior.preview` RPC plus dashboard controls and per-channel override fields.
+
+**Validation**
+
+- Added Go coverage for config resolution, preview, conservative splitting, and non-streaming quick acknowledgement delivery.
+- Verified focused Go packages, both Go builds, `go vet`, web Vitest, web production build, and `git diff --check`.
+
+**Out of scope**
+
+- No archive/timeline storage, renderer, share/export, or interleaved run history changes. Those remain issue #76 scope.
+
+---
+
+### GitHub Releases update scratch dir fallback (issue #94)
+
+- Changed GitHub Releases package updates to prefer `{runtimeDir}/tmp` for
+  scratch extraction and staging, instead of deriving tmp from a release or
+  binary directory.
+- If `packages.scratch_dir` is configured but cannot be created, the update
+  executor now logs a warning and falls back to runtime tmp before failing.
+- Added regression tests for default scratch-dir selection and fallback from an
+  unusable configured scratch path.
+
+---
+
+### CLI Credentials git preset null-env crash (issue #93)
+
+**Fixes**
+
+- Stopped `/v1/cli-credentials/presets` from returning nullable preset arrays
+  for adapter-managed CLIs such as `git`; frontend now also normalizes older
+  `null` payloads defensively.
+- Allowed the `git` preset to create a SecureCLI binary without legacy env
+  vars and persisted its `adapter_name=git`, so the PAT/SSH user credential
+  flow activates after creation.
+- Guarded the preset env-var renderer against nullish `env_vars` to keep the
+  Runtime & Packages → CLI Credentials tab renderable.
+
+**Tests**
+
+- Added backend regression coverage for stable preset arrays and git preset
+  creation without legacy env.
+- Added frontend normalization coverage for nullable adapter-managed preset
+  arrays.
+
+---
+
 ## 2026-05-28
 
 ### CLI credential adapter framework + git adapter (issue #82)
