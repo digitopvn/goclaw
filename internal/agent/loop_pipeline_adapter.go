@@ -144,7 +144,8 @@ func (l *Loop) buildPipelineDeps(req *RunRequest, bridgeRS *runState) pipeline.P
 		SequentialToolCall: func(tc providers.ToolCall) bool {
 			return l.resolveToolCallName(tc.Name) == "wait"
 		},
-		CheckReadOnly: cb.checkReadOnly,
+		ParallelEligibleToolCall: l.parallelEligibleToolCall,
+		CheckReadOnly:            cb.checkReadOnly,
 
 		// Observe: drain InjectCh
 		DrainInjectCh: func() []providers.Message {
