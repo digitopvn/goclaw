@@ -6,6 +6,19 @@ Significant changes, features, and fixes in reverse chronological order.
 
 ## 2026-05-31
 
+### Provider fallback content-policy recovery
+
+**Fixes**
+
+- Classifies provider content-policy rejections such as DashScope `data_inspection_failed` so model fallback can continue to the next configured candidate instead of stopping on `unknown`.
+- Prevents Telegram runs from aborting silently when one fallback provider rejects a long/private history but another configured fallback remains available.
+
+**Tests**
+
+- Added provider classifier and model fallback coverage for continuing past a content-policy fallback failure.
+
+---
+
 ### Empty Codex OAuth truncation recovery
 
 **Fixes**
