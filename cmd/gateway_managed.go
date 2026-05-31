@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"strings"
+	"time"
 
 	"github.com/nextlevelbuilder/goclaw/internal/agent"
 	"github.com/nextlevelbuilder/goclaw/internal/bus"
@@ -86,6 +87,12 @@ func wireExtras(
 		// Register media analysis tools (need mediaStore for file access).
 		readDocumentTool := tools.NewReadDocumentTool(providerReg, mediaStore)
 		readDocumentTool.SetUsageCapService(usageCapSvc)
+		readDocumentTool.SetLocalParser(tools.NewLocalExtractParser(tools.LocalExtractConfig{
+			Enabled:    appCfg.Tools.DocumentParser.LocalFirstEnabled(),
+			MaxPages:   appCfg.Tools.DocumentParser.MaxPages,
+			Timeout:    time.Duration(appCfg.Tools.DocumentParser.TimeoutSec) * time.Second,
+			MinTextLen: appCfg.Tools.DocumentParser.MinTextLen,
+		}))
 		toolsReg.Register(readDocumentTool)
 		readAudioTool := tools.NewReadAudioTool(providerReg, mediaStore)
 		readAudioTool.SetUsageCapService(usageCapSvc)
@@ -696,7 +703,7 @@ func wireExtras(
 		}
 		providerReg.UnregisterForTenant(tenantID, p.Name)
 		if p.Enabled {
-			registerACPFromDB(providerReg, *p)
+			registerACPFromDB(providerReg, *p, configuredShellDenyGroups(appCfg))
 		}
 	})
 
