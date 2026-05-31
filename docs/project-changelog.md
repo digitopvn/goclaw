@@ -4,6 +4,22 @@ Significant changes, features, and fixes in reverse chronological order.
 
 ---
 
+## 2026-05-31
+
+### Empty Codex OAuth truncation recovery
+
+**Fixes**
+
+- Detects successful LLM calls that still return `finish_reason=length` with no text/tool/image output, the observed failure mode when long Codex OAuth runs spend the remaining budget on reasoning.
+- Runs emergency history compaction and retries instead of finalizing empty assistant content into repeated `"..."` replies.
+- Preserves configured/model context windows so future provider context upgrades do not require code changes.
+
+**Tests**
+
+- Added ThinkStage coverage for empty length responses, retry compaction, usage accounting, and repeated failure handling.
+
+---
+
 ## 2026-05-29
 
 ### Passive channel memory extraction (issue #64)

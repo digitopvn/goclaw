@@ -23,7 +23,7 @@ func NewThinkStage(deps *PipelineDeps) *ThinkStage {
 	return &ThinkStage{deps: deps, result: Continue}
 }
 
-func (s *ThinkStage) Name() string       { return "think" }
+func (s *ThinkStage) Name() string        { return "think" }
 func (s *ThinkStage) Result() StageResult { return s.result }
 
 // Execute builds tools, calls LLM, handles truncation, sets flow control.
@@ -64,26 +64,12 @@ func (s *ThinkStage) Execute(ctx context.Context, state *RunState) error {
 			if state.Think.OverflowRetries > 0 {
 				return fmt.Errorf("context overflow after compaction: %w", err)
 			}
-			state.Think.OverflowRetries++
-			// Attempt emergency compaction
-			if s.deps.CompactMessages != nil {
-				originalLen := len(state.Messages.History())
-				compacted, compactErr := s.deps.CompactMessages(ctx, state.Messages.History(), state.Model)
-				if compactErr == nil {
-					state.Messages.ReplaceHistory(compacted)
-					slog.Info("emergency_compaction_triggered",
-						"run_id", state.RunID,
-						"original_msgs", originalLen,
-						"compacted_msgs", len(compacted),
-					)
-					return nil // Retry this iteration (Continue result)
-				}
-				slog.Warn("emergency_compaction_failed", "error", compactErr)
+			if s.tryEmergencyCompaction(ctx, state, "context_overflow_error") {
+				return nil // Retry this iteration (Continue result)
 			}
 		}
 		return fmt.Errorf("llm call: %w", err)
 	}
-	state.Think.LastResponse = resp
 
 	// 5. Accumulate usage (including ThinkingTokens for reasoning models)
 	if resp.Usage != nil {
@@ -92,6 +78,18 @@ func (s *ThinkStage) Execute(ctx context.Context, state *RunState) error {
 		state.Think.TotalUsage.TotalTokens += resp.Usage.TotalTokens
 		state.Think.TotalUsage.ThinkingTokens += resp.Usage.ThinkingTokens
 	}
+
+	if isEmptyLengthResponse(resp) {
+		if state.Think.OverflowRetries > 0 {
+			return fmt.Errorf("llm response truncated before content after compaction")
+		}
+		if s.tryEmergencyCompaction(ctx, state, "empty_length_response") {
+			return nil // Retry next iteration with compacted history.
+		}
+		return fmt.Errorf("llm response truncated before content")
+	}
+
+	state.Think.LastResponse = resp
 
 	// 6. Handle truncation: retry when tool call args are truncated or malformed.
 	// Gemini returns finish_reason="tool_calls" (not "length") even when the thinking
@@ -152,6 +150,36 @@ func (s *ThinkStage) Execute(ctx context.Context, state *RunState) error {
 	}
 
 	return nil
+}
+
+func (s *ThinkStage) tryEmergencyCompaction(ctx context.Context, state *RunState, reason string) bool {
+	state.Think.OverflowRetries++
+	if s.deps.CompactMessages == nil {
+		return false
+	}
+
+	originalLen := len(state.Messages.History())
+	compacted, compactErr := s.deps.CompactMessages(ctx, state.Messages.History(), state.Model)
+	if compactErr != nil {
+		slog.Warn("emergency_compaction_failed", "reason", reason, "error", compactErr)
+		return false
+	}
+	state.Messages.ReplaceHistory(compacted)
+	slog.Info("emergency_compaction_triggered",
+		"run_id", state.RunID,
+		"reason", reason,
+		"original_msgs", originalLen,
+		"compacted_msgs", len(compacted),
+	)
+	return true
+}
+
+func isEmptyLengthResponse(resp *providers.ChatResponse) bool {
+	return resp != nil &&
+		resp.FinishReason == "length" &&
+		strings.TrimSpace(resp.Content) == "" &&
+		len(resp.ToolCalls) == 0 &&
+		len(resp.Images) == 0
 }
 
 // maybeInjectNudge injects iteration budget warnings at 70% and 90%.
