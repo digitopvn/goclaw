@@ -52,6 +52,13 @@ export function Combobox({
   const dropdownRef = React.useRef<HTMLDivElement>(null);
   const [dropdownStyle, setDropdownStyle] = React.useState<React.CSSProperties>({});
 
+  React.useEffect(() => {
+    if (!disabled) return;
+    setOpen(false);
+    setInputDirty(false);
+    inputDirtyRef.current = false;
+  }, [disabled]);
+
   // Sync search text when value changes externally — show label if available
   React.useEffect(() => {
     // After handleSelect, skip sync while value is still the selected value.
