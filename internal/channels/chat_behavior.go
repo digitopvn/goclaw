@@ -154,6 +154,9 @@ func ChatBehaviorConfigWithIntermediateDefault(src *config.ChatBehaviorConfig, e
 	if clone == nil {
 		clone = &config.ChatBehaviorConfig{}
 	}
+	if *enabled && clone.Enabled == nil {
+		clone.Enabled = enabled
+	}
 	if clone.IntermediateReplies == nil {
 		clone.IntermediateReplies = &config.IntermediateRepliesConfig{}
 	}

@@ -144,6 +144,9 @@ func TestChatBehaviorConfigWithIntermediateDefault_UsesLegacyBlockReplyOnlyWhenU
 	if got == nil || got.IntermediateReplies == nil || got.IntermediateReplies.Enabled == nil || !*got.IntermediateReplies.Enabled {
 		t.Fatalf("legacy default not applied: %#v", got)
 	}
+	if got.Enabled == nil || !*got.Enabled {
+		t.Fatalf("legacy block_reply=true did not enable chat behavior: %#v", got)
+	}
 }
 
 func TestResolveChatBehaviorWithAgent_ChannelBlockReplySeedsIntermediateDefault(t *testing.T) {
